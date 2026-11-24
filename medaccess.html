@@ -1,0 +1,2861 @@
+<!DOCTYPE html>
+<html lang="ru" class="scroll-smooth">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Карта доступности (MedAccess) — Интерактивная карта доступных медучреждений</title>
+    
+    <!-- Шрифт Inter с поддержкой кириллицы -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    
+    <!-- Настоящая карта Leaflet + OpenStreetMap -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin=""/>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+    <script>
+        // Если unpkg недоступен — подгружаем Leaflet со второго CDN
+        if (!window.L) {
+            document.write('<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">' +
+                '<script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"><\/script>');
+        }
+    </script>
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- Конфигурация Tailwind -->
+    <script>
+        if (window.tailwind) {
+            tailwind.config = {
+                theme: {
+                    extend: {
+                        fontFamily: {
+                            sans: ['Inter', 'system-ui', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'sans-serif']
+                        },
+                        colors: {
+                            brand: {
+                                50: '#f0fdf4',
+                                100: '#dcfce7',
+                                200: '#bbf7d0',
+                                300: '#86efac',
+                                400: '#4ade80',
+                                500: '#22c55e',
+                                600: '#16a34a',
+                                700: '#15803d',
+                                800: '#166534',
+                                900: '#14532d',
+                                950: '#052e16'
+                            },
+                            medblue: {
+                                50: '#eff6ff',
+                                100: '#dbeafe',
+                                600: '#2563eb',
+                                700: '#1d4ed8',
+                                800: '#1e40af',
+                                900: '#1e3a8a'
+                            }
+                        }
+                    }
+                }
+            };
+        }
+    </script>
+
+    <style>
+        /* Базовые стили и переменные доступности */
+        body {
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+            background-color: #f8fafc;
+            color: #0f172a;
+            margin: 0;
+        }
+
+        /* Увеличение шрифта (режим слабовидящих) */
+        html.a11y-large-text {
+            font-size: 19px;
+        }
+        html.a11y-large-text body {
+            font-size: 1.125rem;
+            line-height: 1.65;
+        }
+
+        /* Режим высокой контрастности */
+        html.a11y-high-contrast body,
+        html.a11y-high-contrast section,
+        html.a11y-high-contrast header,
+        html.a11y-high-contrast footer,
+        html.a11y-high-contrast article,
+        html.a11y-high-contrast .bg-white,
+        html.a11y-high-contrast .bg-slate-50,
+        html.a11y-high-contrast .bg-slate-100 {
+            background-color: #000000 !important;
+            color: #ffffff !important;
+            border-color: #ffffff !important;
+        }
+        html.a11y-high-contrast .text-slate-500,
+        html.a11y-high-contrast .text-slate-600,
+        html.a11y-high-contrast .text-slate-700,
+        html.a11y-high-contrast .text-slate-800,
+        html.a11y-high-contrast .text-slate-900,
+        html.a11y-high-contrast .text-brand-700,
+        html.a11y-high-contrast .text-brand-800 {
+            color: #ffffff !important;
+        }
+        html.a11y-high-contrast a,
+        html.a11y-high-contrast button {
+            border: 2px solid #ffff00 !important;
+        }
+        html.a11y-high-contrast .btn-primary,
+        html.a11y-high-contrast .active-filter {
+            background-color: #ffff00 !important;
+            color: #000000 !important;
+        }
+
+        /* Увеличенные зоны клика и четкий фокус для клавиатуры */
+        .a11y-target {
+            min-height: 44px;
+            min-width: 44px;
+        }
+        *:focus-visible {
+            outline: 3px solid #0284c7 !important;
+            outline-offset: 2px !important;
+        }
+        html.a11y-high-contrast *:focus-visible {
+            outline: 4px solid #ffff00 !important;
+        }
+
+        /* Кастомный скроллбар */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #f1f5f9;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+
+        /* Анимация пунктирного маршрута на SVG-карте */
+        @keyframes dashFlow {
+            to {
+                stroke-dashoffset: -24;
+            }
+        }
+        .route-animated-line {
+            animation: dashFlow 0.9s linear infinite;
+        }
+
+        @keyframes pulseRing {
+            0% {
+                transform: scale(0.9);
+                opacity: 0.85;
+            }
+            70% {
+                transform: scale(1.65);
+                opacity: 0;
+            }
+            100% {
+                transform: scale(1.65);
+                opacity: 0;
+            }
+        }
+        .marker-pulse-ring {
+            transform-box: fill-box;
+            transform-origin: center;
+            animation: pulseRing 2s ease-out infinite;
+        }
+
+        /* Стили контейнера настоящей карты Leaflet */
+        #real-leaflet-map {
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+            background: #e8eef5;
+        }
+        .leaflet-div-icon {
+            background: transparent !important;
+            border: none !important;
+        }
+        .clinic-map-pin {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            transform: translate(-50%, -21px);
+            cursor: pointer;
+        }
+        .clinic-pin-circle {
+            width: 42px;
+            height: 42px;
+            border-radius: 9999px;
+            border: 3px solid #ffffff;
+            box-shadow: 0 6px 16px rgba(15, 23, 42, 0.32);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #ffffff;
+            font-weight: 800;
+            font-size: 13px;
+            position: relative;
+            transition: transform 0.18s ease;
+        }
+        .clinic-map-pin:hover .clinic-pin-circle,
+        .clinic-pin-selected .clinic-pin-circle {
+            transform: scale(1.14);
+        }
+        .clinic-pin-selected .clinic-pin-circle::after {
+            content: "";
+            position: absolute;
+            inset: -8px;
+            border-radius: 9999px;
+            border: 3px solid currentColor;
+            opacity: 0.55;
+            animation: pulseRing 1.8s ease-out infinite;
+        }
+        .clinic-pin-alert {
+            position: absolute;
+            top: -5px;
+            right: -5px;
+            width: 17px;
+            height: 17px;
+            border-radius: 9999px;
+            background: #ef4444;
+            color: #ffffff;
+            border: 2px solid #ffffff;
+            font-size: 10px;
+            font-weight: 900;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .clinic-pin-label {
+            margin-top: 4px;
+            padding: 2px 8px;
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.96);
+            border: 1px solid #cbd5e1;
+            color: #0f172a;
+            font-size: 11px;
+            font-weight: 700;
+            white-space: nowrap;
+            box-shadow: 0 2px 6px rgba(15, 23, 42, 0.14);
+            max-width: 170px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        #hybrid-map-viewport {
+            touch-action: none;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+    </style>
+</head>
+<body class="antialiased selection:bg-brand-200 selection:text-brand-900">
+
+    <!-- Ссылка быстрого перехода к основному контенту для скринридеров и клавиатуры -->
+    <a href="#main-content" class="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[100] focus:bg-medblue-800 focus:text-white focus:px-4 focus:py-3 focus:rounded-xl focus:font-semibold shadow-lg">
+        Перейти к основному содержанию
+    </a>
+
+    <!-- 1. ВЕРХНЯЯ ПАНЕЛЬ ДОСТУПНОСТИ (ACCESSIBILITY TOOLBAR) -->
+    <div class="bg-slate-900 text-white border-b border-slate-800" role="region" aria-label="Панель настроек доступности сайта">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-2 flex flex-wrap items-center justify-between gap-2 text-sm">
+            <div class="flex items-center gap-2 text-slate-300">
+                <svg class="w-4 h-4 text-brand-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
+                </svg>
+                <span class="hidden sm:inline">Версия для людей с нарушением зрения и особыми потребностями:</span>
+                <span class="sm:hidden">Доступность:</span>
+            </div>
+            
+            <div class="flex flex-wrap items-center gap-2">
+                <button type="button" id="toggle-font-btn" aria-pressed="false"
+                    class="a11y-target px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-white font-medium border border-slate-700 transition flex items-center gap-1.5 text-xs sm:text-sm">
+                    <span class="font-bold text-base">Аа</span>
+                    <span id="font-btn-label">Крупный шрифт</span>
+                </button>
+
+                <button type="button" id="toggle-contrast-btn" aria-pressed="false"
+                    class="a11y-target px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-white font-medium border border-slate-700 transition flex items-center gap-1.5 text-xs sm:text-sm">
+                    <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+                        <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm0-2V4a6 6 0 100 12z" clip-rule="evenodd"/>
+                    </svg>
+                    <span id="contrast-btn-label">Высокий контраст</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ШАПКА САЙТА (HEADER) -->
+    <header class="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-slate-200 shadow-sm">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between items-center h-20">
+                <!-- Логотип -->
+                <a href="#" class="flex items-center gap-3 group focus:outline-none">
+                    <div class="w-11 h-11 rounded-xl bg-gradient-to-br from-brand-600 to-medblue-700 flex items-center justify-center text-white shadow-md group-hover:scale-105 transition">
+                        <!-- Иконка медицинского креста + геометки + доступности -->
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/>
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M12 8v6m-3-3h6"/>
+                        </svg>
+                    </div>
+                    <div>
+                        <span class="block text-lg sm:text-xl font-extrabold text-slate-900 tracking-tight leading-none">Карта доступности</span>
+                        <span class="block text-xs font-medium text-brand-700 mt-1">MedAccess • Здравоохранение без барьеров</span>
+                    </div>
+                </a>
+
+                <!-- Десктопная навигация -->
+                <nav class="hidden lg:flex items-center gap-1" aria-label="Основная навигация">
+                    <a href="#map-section" class="a11y-target px-3 py-2 rounded-xl text-sm font-semibold text-slate-700 hover:text-brand-700 hover:bg-brand-50 transition flex items-center">Интерактивная карта</a>
+                    <a href="#passport-features" class="a11y-target px-3 py-2 rounded-xl text-sm font-semibold text-slate-700 hover:text-brand-700 hover:bg-brand-50 transition flex items-center">Паспорт доступности</a>
+                    <a href="#how-it-works" class="a11y-target px-3 py-2 rounded-xl text-sm font-semibold text-slate-700 hover:text-brand-700 hover:bg-brand-50 transition flex items-center">Как это работает</a>
+                    <a href="#for-partners" class="a11y-target px-3 py-2 rounded-xl text-sm font-semibold text-slate-700 hover:text-brand-700 hover:bg-brand-50 transition flex items-center">Клиникам и B2G</a>
+                    <a href="#roadmap" class="a11y-target px-3 py-2 rounded-xl text-sm font-semibold text-slate-700 hover:text-brand-700 hover:bg-brand-50 transition flex items-center">О проекте</a>
+                </nav>
+
+                <!-- Кнопка добавления объекта в шапке + Мобильное меню -->
+                <div class="flex items-center gap-2">
+                    <button type="button" onclick="openAddModal()" 
+                        class="a11y-target hidden sm:inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-brand-600 hover:bg-brand-700 text-white font-semibold text-sm shadow-sm transition">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 4v16m8-8H4"/>
+                        </svg>
+                        <span>Добавить объект</span>
+                    </button>
+
+                    <!-- Кнопка мобильного меню -->
+                    <button type="button" id="mobile-menu-btn" aria-expanded="false" aria-controls="mobile-menu"
+                        class="a11y-target lg:hidden p-2.5 rounded-xl text-slate-700 hover:bg-slate-100 border border-slate-200">
+                        <span class="sr-only">Открыть меню навигации</span>
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Мобильное меню -->
+        <div id="mobile-menu" class="hidden lg:hidden bg-white border-t border-slate-200 px-4 pt-3 pb-5 space-y-2 shadow-lg">
+            <a href="#map-section" class="mobile-nav-link block px-4 py-3 rounded-xl text-base font-semibold text-slate-800 hover:bg-brand-50">Интерактивная карта</a>
+            <a href="#passport-features" class="mobile-nav-link block px-4 py-3 rounded-xl text-base font-semibold text-slate-800 hover:bg-brand-50">Паспорт доступности</a>
+            <a href="#how-it-works" class="mobile-nav-link block px-4 py-3 rounded-xl text-base font-semibold text-slate-800 hover:bg-brand-50">Как это работает</a>
+            <a href="#for-partners" class="mobile-nav-link block px-4 py-3 rounded-xl text-base font-semibold text-slate-800 hover:bg-brand-50">Клиникам и B2G</a>
+            <a href="#roadmap" class="mobile-nav-link block px-4 py-3 rounded-xl text-base font-semibold text-slate-800 hover:bg-brand-50">Дорожная карта</a>
+            <div class="pt-2">
+                <button type="button" onclick="openAddModal()" class="w-full a11y-target flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-brand-600 text-white font-semibold">
+                    + Добавить медучреждение
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <main id="main-content">
+
+        <!-- 2. ГЛАВНЫЙ ЭКРАН (HERO SECTION) -->
+        <section class="relative overflow-hidden bg-gradient-to-b from-brand-50/80 via-white to-slate-50 pt-10 pb-14 lg:pt-16 lg:pb-20 border-b border-slate-200">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                <div class="grid lg:grid-cols-12 gap-10 lg:gap-12 items-center">
+                    
+                    <!-- Левая колонка: УТП и кнопки -->
+                    <div class="lg:col-span-7 space-y-6">
+                        <div class="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-brand-100 text-brand-900 text-xs sm:text-sm font-semibold border border-brand-200">
+                            <span class="w-2 h-2 rounded-full bg-brand-600 animate-pulse"></span>
+                            Социальный MedTech-проект • Проверено пациентами и НКО
+                        </div>
+
+                        <h1 class="text-3xl sm:text-4xl lg:text-5xl font-extrabold text-slate-900 tracking-tight leading-[1.15]">
+                            Узнайте заранее, доступна ли поликлиника — <span class="text-brand-700">до выхода из дома</span>
+                        </h1>
+
+                        <p class="text-base sm:text-lg text-slate-700 leading-relaxed max-w-2xl">
+                            Интерактивная карта медучреждений с детальным <strong>«Паспортом доступности»</strong>. Мы показываем реальную ширину дверей, угол пандуса, работу лифтов и то, на каком этаже принимает нужный врач — чтобы визит к доктору не срывался из-за барьеров.
+                        </p>
+
+                        <!-- Кому помогает сервис (теги целевой аудитории) -->
+                        <div class="flex flex-wrap gap-2 pt-1" aria-label="Для кого создан сервис">
+                            <span class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white border border-slate-200 text-xs sm:text-sm font-medium text-slate-700 shadow-xs">
+                                ♿ Людям на колясках и с костылями
+                            </span>
+                            <span class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white border border-slate-200 text-xs sm:text-sm font-medium text-slate-700 shadow-xs">
+                                🦯 Людям с нарушениями зрения
+                            </span>
+                            <span class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white border border-slate-200 text-xs sm:text-sm font-medium text-slate-700 shadow-xs">
+                                👶 Родителям с колясками
+                            </span>
+                            <span class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white border border-slate-200 text-xs sm:text-sm font-medium text-slate-700 shadow-xs">
+                                👵 Пожилым и после операций
+                            </span>
+                        </div>
+
+                        <!-- Кнопки быстрого действия -->
+                        <div class="flex flex-col sm:flex-row gap-3.5 pt-2">
+                            <a href="#map-section" class="btn-primary a11y-target inline-flex items-center justify-center gap-2.5 px-6 py-4 rounded-2xl bg-medblue-800 hover:bg-medblue-900 text-white font-bold text-base shadow-lg shadow-medblue-900/15 transition">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"/>
+                                </svg>
+                                Открыть карту медучреждений
+                            </a>
+                            <button type="button" onclick="openAddModal()" class="a11y-target inline-flex items-center justify-center gap-2 px-6 py-4 rounded-2xl bg-white hover:bg-slate-50 text-slate-900 font-bold text-base border-2 border-slate-300 transition">
+                                <svg class="w-5 h-5 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M12 9v3m0 0v3m0-3h3m-3 0H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                                </svg>
+                                Добавить данные об объекте
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Правая колонка: Наглядная превью-карточка «Паспорта доступности» -->
+                    <div class="lg:col-span-5">
+                        <div class="bg-white rounded-3xl border border-slate-200 shadow-xl p-6 space-y-5 relative">
+                            <div class="flex items-start justify-between gap-3">
+                                <div>
+                                    <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-100 text-emerald-800 text-xs font-bold">
+                                        ✓ Проверено клиникой и НКО
+                                    </span>
+                                    <h2 class="text-lg font-bold text-slate-900 mt-2">Городская поликлиника №4</h2>
+                                    <p class="text-xs text-slate-500">ул. Абая, 42 • Вход №2 со двора (без ступеней)</p>
+                                </div>
+                                <div class="text-right shrink-0">
+                                    <div class="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-emerald-600 text-white font-extrabold text-lg">
+                                        4.9 <span class="text-xs font-normal opacity-90">/5</span>
+                                    </div>
+                                    <span class="block text-[11px] font-semibold text-emerald-700 mt-1">Полностью доступно</span>
+                                </div>
+                            </div>
+
+                            <!-- Мини-метрики паспорта -->
+                            <div class="grid grid-cols-2 gap-2.5 text-xs">
+                                <div class="p-3 rounded-2xl bg-slate-50 border border-slate-200/80 flex items-center gap-2.5">
+                                    <span class="w-7 h-7 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold shrink-0">✓</span>
+                                    <div>
+                                        <span class="block font-bold text-slate-900">Пандус 5° + поручни</span>
+                                        <span class="text-slate-500">Двери 110 см (авто)</span>
+                                    </div>
+                                </div>
+                                <div class="p-3 rounded-2xl bg-slate-50 border border-slate-200/80 flex items-center gap-2.5">
+                                    <span class="w-7 h-7 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold shrink-0">✓</span>
+                                    <div>
+                                        <span class="block font-bold text-slate-900">Лифт работает</span>
+                                        <span class="text-slate-500">Кабина 140×210 см</span>
+                                    </div>
+                                </div>
+                                <div class="p-3 rounded-2xl bg-slate-50 border border-slate-200/80 flex items-center gap-2.5">
+                                    <span class="w-7 h-7 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold shrink-0">✓</span>
+                                    <div>
+                                        <span class="block font-bold text-slate-900">Санузел для МГН</span>
+                                        <span class="text-slate-500">1 этаж, поручни + кнопка</span>
+                                    </div>
+                                </div>
+                                <div class="p-3 rounded-2xl bg-slate-50 border border-slate-200/80 flex items-center gap-2.5">
+                                    <span class="w-7 h-7 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold shrink-0">✓</span>
+                                    <div>
+                                        <span class="block font-bold text-slate-900">Тактильная плитка</span>
+                                        <span class="text-slate-500">Шрифт Брайля + ассистент</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Привязка к кабинету врача -->
+                            <div class="p-3.5 rounded-2xl bg-brand-50 border border-brand-200 flex items-center justify-between gap-3">
+                                <div class="text-xs">
+                                    <span class="font-bold text-brand-900 block">🩺 Кардиолог — 3 этаж, каб. 312</span>
+                                    <span class="text-brand-800">Доступно на широком лифте №2, пороги отсутствуют</span>
+                                </div>
+                                <a href="#map-section" onclick="selectClinicById(1)" class="shrink-0 px-3 py-2 rounded-xl bg-brand-700 text-white text-xs font-bold hover:bg-brand-800 transition">
+                                    Открыть
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+        </section>
+
+        <!-- 3. ГЛАВНАЯ ФИЧА — ИНТЕРАКТИВНАЯ КАРТА И КАТАЛОГ МЕДУЧРЕЖДЕНИЙ (MVP ПРОТОТИП) -->
+        <section id="map-section" class="py-12 lg:py-16 bg-slate-50 border-b border-slate-200" aria-labelledby="map-section-title">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-6">
+                
+                <!-- Заголовок и легенда цветов -->
+                <div class="flex flex-col lg:flex-row lg:items-end justify-between gap-4">
+                    <div>
+                        <span class="text-xs font-bold uppercase tracking-wider text-brand-700">Интерактивный MVP-прототип</span>
+                        <h2 id="map-section-title" class="text-2xl sm:text-3xl font-extrabold text-slate-900 mt-1">
+                            Карта доступности медучреждений
+                        </h2>
+                        <p class="text-sm sm:text-base text-slate-600 mt-1">
+                            Выберите клинику на карте или в списке, чтобы открыть «Паспорт доступности» и проверить кабинеты врачей.
+                        </p>
+                    </div>
+
+                    <!-- Цветовая легенда (Зеленый / Желтый / Красный) -->
+                    <div class="flex flex-wrap items-center gap-3 bg-white px-4 py-2.5 rounded-2xl border border-slate-200 shadow-xs text-xs sm:text-sm" aria-label="Обозначение цветов на карте">
+                        <span class="inline-flex items-center gap-1.5 font-semibold text-slate-800">
+                            <span class="w-3.5 h-3.5 rounded-full bg-emerald-500 ring-2 ring-emerald-200"></span>
+                            4.5–5.0 Доступно
+                        </span>
+                        <span class="inline-flex items-center gap-1.5 font-semibold text-slate-800">
+                            <span class="w-3.5 h-3.5 rounded-full bg-amber-500 ring-2 ring-amber-200"></span>
+                            3.0–4.4 Частично
+                        </span>
+                        <span class="inline-flex items-center gap-1.5 font-semibold text-slate-800">
+                            <span class="w-3.5 h-3.5 rounded-full bg-rose-600 ring-2 ring-rose-200"></span>
+                            1.0–2.9 Барьеры / поломка
+                        </span>
+                    </div>
+                </div>
+
+                <!-- Панель поиска и фильтров -->
+                <div class="bg-white p-4 sm:p-5 rounded-3xl border border-slate-200 shadow-sm space-y-4">
+                    <div class="grid md:grid-cols-12 gap-3">
+                        <!-- Поиск по названию клиники или врачу -->
+                        <div class="md:col-span-7 relative">
+                            <label for="search-input" class="sr-only">Поиск по названию клиники, адресу или специальности врача</label>
+                            <div class="relative flex items-center">
+                                <svg class="w-5 h-5 text-slate-400 absolute left-4 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+                                </svg>
+                                <input type="text" id="search-input" 
+                                    placeholder="Поиск: «Поликлиника №4», «Кардиолог», «Стоматолог», «МРТ»..."
+                                    class="a11y-target w-full pl-11 pr-10 py-3 rounded-2xl border border-slate-300 bg-slate-50 focus:bg-white text-slate-900 placeholder-slate-500 text-sm sm:text-base transition">
+                                <button type="button" id="clear-search-btn" class="hidden absolute right-3 p-1.5 text-slate-400 hover:text-slate-700" aria-label="Очистить поиск">
+                                    ✕
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Фильтр по уровню доступности + переключатель Карта/Список (для мобильных) -->
+                        <div class="md:col-span-5 flex flex-wrap sm:flex-nowrap gap-2">
+                            <label for="rating-filter" class="sr-only">Фильтр по уровню доступности</label>
+                            <select id="rating-filter" class="a11y-target w-full px-4 py-3 rounded-2xl border border-slate-300 bg-slate-50 text-slate-800 font-medium text-sm">
+                                <option value="all">Все уровни доступности</option>
+                                <option value="green">🟢 Полностью доступно (4.5+)</option>
+                                <option value="yellow">🟡 Частично доступно (3.0–4.4)</option>
+                                <option value="red">🔴 Есть барьеры (&lt; 3.0)</option>
+                            </select>
+
+                            <button type="button" id="reset-filters-btn" class="a11y-target shrink-0 px-4 py-3 rounded-2xl border border-slate-300 hover:bg-slate-100 text-slate-700 font-semibold text-sm transition">
+                                Сбросить
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Чекбоксы-чипсы фильтров по типу барьеров -->
+                    <div class="flex flex-wrap items-center gap-2 pt-1" role="group" aria-label="Фильтры по критериям доступности">
+                        <span class="text-xs font-bold text-slate-500 mr-1">Критерии:</span>
+                        
+                        <button type="button" data-filter="ramp" aria-pressed="false"
+                            class="filter-chip a11y-target px-3.5 py-2 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs sm:text-sm font-semibold transition flex items-center gap-1.5">
+                            <span>📐 Пандус / без ступеней</span>
+                        </button>
+
+                        <button type="button" data-filter="elevator" aria-pressed="false"
+                            class="filter-chip a11y-target px-3.5 py-2 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs sm:text-sm font-semibold transition flex items-center gap-1.5">
+                            <span>🛗 Работающий широкий лифт</span>
+                        </button>
+
+                        <button type="button" data-filter="toilet" aria-pressed="false"
+                            class="filter-chip a11y-target px-3.5 py-2 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs sm:text-sm font-semibold transition flex items-center gap-1.5">
+                            <span>🚻 Адаптированный туалет</span>
+                        </button>
+
+                        <button type="button" data-filter="parking" aria-pressed="false"
+                            class="filter-chip a11y-target px-3.5 py-2 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs sm:text-sm font-semibold transition flex items-center gap-1.5">
+                            <span>🅿️ Парковка для инвалидов</span>
+                        </button>
+
+                        <button type="button" data-filter="tactile" aria-pressed="false"
+                            class="filter-chip a11y-target px-3.5 py-2 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs sm:text-sm font-semibold transition flex items-center gap-1.5">
+                            <span>🦯 Тактильная навигация и звук</span>
+                        </button>
+
+                        <button type="button" data-filter="verified" aria-pressed="false"
+                            class="filter-chip a11y-target px-3.5 py-2 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs sm:text-sm font-semibold transition flex items-center gap-1.5">
+                            <span>🛡️ Только проверенные</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Мобильный переключатель вида: Карта / Список -->
+                <div class="flex lg:hidden bg-slate-200/80 p-1 rounded-2xl" role="tablist" aria-label="Режим отображения">
+                    <button type="button" id="view-both-btn" role="tab" aria-selected="true" class="flex-1 py-2.5 rounded-xl bg-white text-slate-900 font-bold text-sm shadow-xs">
+                        Карта и список
+                    </button>
+                    <button type="button" id="view-map-only-btn" role="tab" aria-selected="false" class="flex-1 py-2.5 rounded-xl text-slate-600 font-semibold text-sm">
+                        Только карта
+                    </button>
+                    <button type="button" id="view-list-only-btn" role="tab" aria-selected="false" class="flex-1 py-2.5 rounded-xl text-slate-600 font-semibold text-sm">
+                        Только список (<span id="mobile-count">0</span>)
+                    </button>
+                </div>
+
+                <!-- Основная рабочая область: Список слева + Интерактивная карта справа -->
+                <div class="grid lg:grid-cols-12 gap-6 items-start">
+                    
+                    <!-- Левая колонка: Список учреждений -->
+                    <div id="list-container" class="lg:col-span-5 space-y-3">
+                        <div class="flex items-center justify-between px-1">
+                            <p class="text-sm font-semibold text-slate-700" aria-live="polite">
+                                Найдено учреждений: <span id="results-count" class="text-brand-700 font-extrabold">0</span>
+                            </p>
+                            <button type="button" onclick="openAddModal()" class="text-xs font-bold text-brand-700 hover:underline">
+                                + Не нашли клинику? Добавить
+                            </button>
+                        </div>
+
+                        <div id="clinics-list" class="space-y-3 max-h-[640px] overflow-y-auto pr-1">
+                            <!-- Карточки рендерятся через JS -->
+                        </div>
+                    </div>
+
+                    <!-- Правая колонка: Гибридная интерактивная карта (Векторная городская подложка + Тайлы OSM/Carto + SVG-маркеры и маршруты) -->
+                    <div id="map-container" class="lg:col-span-7 bg-white rounded-3xl border border-slate-200 shadow-md overflow-hidden relative">
+                        
+                        <!-- Баннер режима выбора точки на карте при добавлении клиники -->
+                        <div id="pick-location-banner" class="hidden absolute top-4 left-4 right-16 z-30 bg-medblue-900 text-white px-4 py-3 rounded-2xl shadow-xl border border-medblue-700 flex items-center justify-between gap-3">
+                            <div class="text-xs sm:text-sm font-semibold">
+                                📍 <strong>Нажмите в любое место на карте</strong>, чтобы указать расположение новой клиники
+                            </div>
+                            <button type="button" onclick="cancelPickLocationMode()" class="px-3 py-1.5 rounded-xl bg-white/15 hover:bg-white/25 text-xs font-bold shrink-0">
+                                Отмена
+                            </button>
+                        </div>
+
+                        <!-- Панель управления масштабом и навигацией карты -->
+                        <div class="absolute top-4 right-4 z-20 flex flex-col gap-2" role="group" aria-label="Управление масштабом карты">
+                            <button type="button" id="map-zoom-in" class="a11y-target w-11 h-11 rounded-2xl bg-white/95 hover:bg-white text-slate-900 font-extrabold text-xl shadow-md border border-slate-200 flex items-center justify-center transition" title="Приблизить карту" aria-label="Приблизить карту">
+                                +
+                            </button>
+                            <button type="button" id="map-zoom-out" class="a11y-target w-11 h-11 rounded-2xl bg-white/95 hover:bg-white text-slate-900 font-extrabold text-xl shadow-md border border-slate-200 flex items-center justify-center transition" title="Отдалить карту" aria-label="Отдалить карту">
+                                −
+                            </button>
+                            <button type="button" id="map-reset-view" class="a11y-target w-11 h-11 rounded-2xl bg-white/95 hover:bg-white text-slate-700 font-bold text-xs shadow-md border border-slate-200 flex items-center justify-center transition" title="Сбросить вид карты" aria-label="Сбросить вид карты">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4"/>
+                                </svg>
+                            </button>
+                        </div>
+
+                        <!-- Информационная плашка активного маршрута на карте -->
+                        <div id="map-route-hud" class="hidden absolute top-4 left-4 z-20 max-w-xs sm:max-w-sm bg-white/95 backdrop-blur-md p-3.5 rounded-2xl border-2 border-brand-500 shadow-xl space-y-1.5">
+                            <div class="flex items-center justify-between gap-2">
+                                <span class="text-xs font-extrabold text-brand-800 uppercase tracking-wide">🧭 Безбарьерный маршрут</span>
+                                <button type="button" onclick="clearActiveRoute()" class="text-xs font-bold text-slate-500 hover:text-slate-900 px-1.5 py-0.5 rounded-lg bg-slate-100">
+                                    ✕ Скрыть
+                                </button>
+                            </div>
+                            <p id="map-route-title" class="text-xs font-bold text-slate-900">Поликлиника №4</p>
+                            <div class="flex items-center gap-3 text-xs font-semibold text-slate-700">
+                                <span id="map-route-distance" class="px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-900">~ 35 метров</span>
+                                <span id="map-route-time" class="px-2 py-0.5 rounded-md bg-blue-100 text-medblue-900">~ 1 мин без ступеней</span>
+                            </div>
+                        </div>
+
+                        <!-- Основной вьюпорт интерактивной карты -->
+                        <div id="hybrid-map-viewport" class="w-full h-[460px] sm:h-[580px] lg:h-[640px] relative overflow-hidden bg-[#eef3f7] cursor-grab active:cursor-grabbing" role="region" aria-label="Интерактивная карта медучреждений">
+                            <!-- Настоящая карта OpenStreetMap / Leaflet -->
+                            <div id="real-leaflet-map" class="w-full h-full"></div>
+
+                            <!-- Резервный SVG-слой (активируется автоматически, если Leaflet/тайлы недоступны) -->
+                            <svg id="hybrid-map-svg" class="hidden w-full h-full block" viewBox="0 0 1000 720" preserveAspectRatio="xMidYMid slice" aria-label="Схема города с отметками доступности медучреждений">
+                                <defs>
+                                    <pattern id="city-grid" width="80" height="80" patternUnits="userSpaceOnUse">
+                                        <path d="M 80 0 L 0 0 0 80" fill="none" stroke="#dbe4ee" stroke-width="1"/>
+                                    </pattern>
+                                    <filter id="pin-shadow" x="-30%" y="-30%" width="160%" height="160%">
+                                        <feDropShadow dx="0" dy="3" stdDeviation="3" flood-color="#0f172a" flood-opacity="0.28"/>
+                                    </filter>
+                                </defs>
+                                <g id="map-transform-group">
+                                    <rect x="-400" y="-400" width="1800" height="1520" fill="#f1f5f9"/>
+                                    <rect x="-400" y="-400" width="1800" height="1520" fill="url(#city-grid)"/>
+                                    <g id="map-route-layer"></g>
+                                    <g id="map-markers-layer"></g>
+                                </g>
+                            </svg>
+
+                            <!-- Всплывающий тултип при наведении на маркер -->
+                            <div id="map-hover-tooltip" class="hidden pointer-events-none absolute z-30 bg-slate-900/95 text-white px-3.5 py-2.5 rounded-xl shadow-xl text-xs max-w-[230px] border border-slate-700">
+                                <div id="tooltip-title" class="font-bold text-white">Клиника</div>
+                                <div id="tooltip-subtitle" class="text-slate-300 mt-0.5">Рейтинг 4.9</div>
+                            </div>
+                        </div>
+                        
+                        <!-- Плавающая подсказка поверх карты -->
+                        <div class="absolute bottom-4 left-4 right-4 sm:right-auto z-20 bg-white/95 backdrop-blur-md px-4 py-3 rounded-2xl border border-slate-200 shadow-lg max-w-md flex items-center justify-between gap-3">
+                            <p class="text-xs text-slate-700 font-medium">
+                                💡 <strong>Нажмите на цветную метку</strong>, чтобы открыть паспорт, или перетаскивайте карту мышью / пальцем.
+                            </p>
+                            <button type="button" onclick="startPickLocationMode()" class="shrink-0 px-3 py-1.5 rounded-xl bg-brand-50 hover:bg-brand-100 text-brand-800 border border-brand-200 font-bold text-xs transition">
+                                + Точка
+                            </button>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+        </section>
+
+        <!-- 4. ЧТО ВХОДИТ В «ПАСПОРТ ДОСТУПНОСТИ» (ДЕТАЛЬНЫЙ ОБЗОР КРИТЕРИЕВ) -->
+        <section id="passport-features" class="py-14 lg:py-20 bg-white border-b border-slate-200">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-12">
+                <div class="text-center max-w-3xl mx-auto space-y-3">
+                    <span class="text-xs font-bold uppercase tracking-wider text-brand-700">Стандарт проверки MedAccess</span>
+                    <h2 class="text-2xl sm:text-3xl lg:text-4xl font-extrabold text-slate-900">
+                        Что проверяет «Паспорт доступности»
+                    </h2>
+                    <p class="text-base text-slate-600">
+                        Мы не ограничиваемся общей галочкой «Доступно для инвалидов». Каждое медучреждение оценивается по 6 критически важным параметрам пути пациента — от парковки до кресла врача.
+                    </p>
+                </div>
+
+                <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                    <!-- Карточка 1 -->
+                    <div class="p-6 rounded-3xl bg-slate-50 border border-slate-200/90 space-y-3 hover:border-brand-300 transition">
+                        <div class="w-12 h-12 rounded-2xl bg-brand-100 text-brand-700 flex items-center justify-center text-2xl">📐</div>
+                        <h3 class="text-lg font-bold text-slate-900">Входная группа и пандус</h3>
+                        <p class="text-sm text-slate-600 leading-relaxed">
+                            Наличие отдельного входа без ступеней, угол наклона пандуса, двусторонние поручни, противоскользящее покрытие и точная ширина дверного проёма (от 90 см).
+                        </p>
+                    </div>
+
+                    <!-- Карточка 2 -->
+                    <div class="p-6 rounded-3xl bg-slate-50 border border-slate-200/90 space-y-3 hover:border-brand-300 transition">
+                        <div class="w-12 h-12 rounded-2xl bg-blue-100 text-medblue-700 flex items-center justify-center text-2xl">🛗</div>
+                        <h3 class="text-lg font-bold text-slate-900">Лифты и статус работы</h3>
+                        <p class="text-sm text-slate-600 leading-relaxed">
+                            Габариты кабины (поместится ли кресло-коляска и сопровождающий), наличие кнопок со шрифтом Брайля и <strong>оперативный статус исправности</strong> в реальном времени.
+                        </p>
+                    </div>
+
+                    <!-- Карточка 3 -->
+                    <div class="p-6 rounded-3xl bg-slate-50 border border-slate-200/90 space-y-3 hover:border-brand-300 transition">
+                        <div class="w-12 h-12 rounded-2xl bg-emerald-100 text-emerald-700 flex items-center justify-center text-2xl">🩺</div>
+                        <h3 class="text-lg font-bold text-slate-900">Привязка к врачу и этажу</h3>
+                        <p class="text-sm text-slate-600 leading-relaxed">
+                            Заранее показываем, на каком этаже принимает терапевт, стоматолог или кардиолог, и можно ли туда попасть без лестничных пролётов и высоких порогов.
+                        </p>
+                    </div>
+
+                    <!-- Карточка 4 -->
+                    <div class="p-6 rounded-3xl bg-slate-50 border border-slate-200/90 space-y-3 hover:border-brand-300 transition">
+                        <div class="w-12 h-12 rounded-2xl bg-amber-100 text-amber-700 flex items-center justify-center text-2xl">🚻</div>
+                        <h3 class="text-lg font-bold text-slate-900">Адаптированный санузел</h3>
+                        <p class="text-sm text-slate-600 leading-relaxed">
+                            Наличие специализированной кабины с радиусом разворота коляски 1.5 м, откидными поручнями и исправной кнопкой вызова персонала.
+                        </p>
+                    </div>
+
+                    <!-- Карточка 5 -->
+                    <div class="p-6 rounded-3xl bg-slate-50 border border-slate-200/90 space-y-3 hover:border-brand-300 transition">
+                        <div class="w-12 h-12 rounded-2xl bg-purple-100 text-purple-700 flex items-center justify-center text-2xl">🦯</div>
+                        <h3 class="text-lg font-bold text-slate-900">Навигация для незрячих</h3>
+                        <p class="text-sm text-slate-600 leading-relaxed">
+                            Тактильная плитка от остановки и парковки до регистратуры, контрастная маркировка ступеней, таблички Брайля, голосовые информаторы и помощь ассистента.
+                        </p>
+                    </div>
+
+                    <!-- Карточка 6 -->
+                    <div class="p-6 rounded-3xl bg-slate-50 border border-slate-200/90 space-y-3 hover:border-brand-300 transition">
+                        <div class="w-12 h-12 rounded-2xl bg-rose-100 text-rose-700 flex items-center justify-center text-2xl">🅿️</div>
+                        <h3 class="text-lg font-bold text-slate-900">Парковка и маршрут ко входу</h3>
+                        <p class="text-sm text-slate-600 leading-relaxed">
+                            Выделенные места для транспорта людей с инвалидностью, пониженные бордюры на пути к зданию и пошаговая схема, с какой стороны находится доступный вход.
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 5. СРАВНЕНИЕ С ОБЫЧНЫМИ КАРТАМИ И ИСТОЧНИКИ ДАННЫХ -->
+        <section id="how-it-works" class="py-14 lg:py-20 bg-slate-50 border-b border-slate-200">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-14">
+                
+                <!-- Сравнительная таблица: Обычные карты vs Карта доступности -->
+                <div class="space-y-6">
+                    <div class="max-w-3xl">
+                        <span class="text-xs font-bold uppercase tracking-wider text-brand-700">Почему не хватает обычных навигаторов</span>
+                        <h2 class="text-2xl sm:text-3xl font-extrabold text-slate-900 mt-1">
+                            Чем «Карта доступности» отличается от 2ГИС и Google Maps
+                        </h2>
+                    </div>
+
+                    <div class="overflow-x-auto bg-white rounded-3xl border border-slate-200 shadow-sm">
+                        <table class="w-full text-left border-collapse">
+                            <thead>
+                                <tr class="border-b border-slate-200 bg-slate-100/80">
+                                    <th class="py-4 px-5 text-sm font-bold text-slate-700">Критерий</th>
+                                    <th class="py-4 px-5 text-sm font-bold text-slate-500">Обычные карты (2ГИС, Google Maps)</th>
+                                    <th class="py-4 px-5 text-sm font-extrabold text-brand-800 bg-brand-50/70">Карта доступности (MedAccess)</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-slate-200 text-sm">
+                                <tr>
+                                    <td class="py-4 px-5 font-semibold text-slate-900">Детализация входа</td>
+                                    <td class="py-4 px-5 text-slate-600">Общая иконка «Есть вход для колясок» без деталей</td>
+                                    <td class="py-4 px-5 font-semibold text-slate-900 bg-brand-50/30">Ширина дверей в см, угол пандуса, фото входа и маршрут заезда</td>
+                                </tr>
+                                <tr>
+                                    <td class="py-4 px-5 font-semibold text-slate-900">Внутренняя навигация</td>
+                                    <td class="py-4 px-5 text-slate-600">Отсутствует — неизвестно, что внутри после порога</td>
+                                    <td class="py-4 px-5 font-semibold text-slate-900 bg-brand-50/30">Привязка к этажу и кабинету нужного врача, габариты лифта</td>
+                                </tr>
+                                <tr>
+                                    <td class="py-4 px-5 font-semibold text-slate-900">Актуальность (поломки)</td>
+                                    <td class="py-4 px-5 text-slate-600">Данные устаревают на месяцы и годы</td>
+                                    <td class="py-4 px-5 font-semibold text-slate-900 bg-brand-50/30">Мгновенные пользовательские алерты («Лифт сломан», «Пандус в снегу»)</td>
+                                </tr>
+                                <tr>
+                                    <td class="py-4 px-5 font-semibold text-slate-900">Верификация данных</td>
+                                    <td class="py-4 px-5 text-slate-600">Любой пользователь может ошибочно отметить доступность</td>
+                                    <td class="py-4 px-5 font-semibold text-slate-900 bg-brand-50/30">3 уровня: подтверждение сообщества, аудит НКО и паспорт клиники</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- 5 источников достоверных данных -->
+                <div class="space-y-6">
+                    <div class="max-w-3xl">
+                        <span class="text-xs font-bold uppercase tracking-wider text-brand-700">Экосистема доверия</span>
+                        <h2 class="text-2xl sm:text-3xl font-extrabold text-slate-900 mt-1">
+                            Как мы собираем и проверяем данные
+                        </h2>
+                    </div>
+
+                    <div class="grid sm:grid-cols-2 lg:grid-cols-5 gap-4">
+                        <div class="p-5 rounded-2xl bg-white border border-slate-200 shadow-xs space-y-2">
+                            <span class="inline-flex w-8 h-8 rounded-lg bg-brand-600 text-white font-bold items-center justify-center text-sm">1</span>
+                            <h3 class="font-bold text-slate-900 text-base">Краудсорсинг</h3>
+                            <p class="text-xs text-slate-600 leading-relaxed">Пациенты и сопровождающие добавляют фото входов, отзывы и подтверждают актуальность статусов.</p>
+                        </div>
+
+                        <div class="p-5 rounded-2xl bg-white border border-slate-200 shadow-xs space-y-2">
+                            <span class="inline-flex w-8 h-8 rounded-lg bg-brand-600 text-white font-bold items-center justify-center text-sm">2</span>
+                            <h3 class="font-bold text-slate-900 text-base">Партнёрство с НКО</h3>
+                            <p class="text-xs text-slate-600 leading-relaxed">Совместная работа с обществами людей с инвалидностью и экспертами по доступной среде.</p>
+                        </div>
+
+                        <div class="p-5 rounded-2xl bg-white border border-slate-200 shadow-xs space-y-2">
+                            <span class="inline-flex w-8 h-8 rounded-lg bg-brand-600 text-white font-bold items-center justify-center text-sm">3</span>
+                            <h3 class="font-bold text-slate-900 text-base">Волонтёрские аудиты</h3>
+                            <p class="text-xs text-slate-600 leading-relaxed">Регулярные выездные проверки по единому чек-листу с замерами рулеткой и угломером.</p>
+                        </div>
+
+                        <div class="p-5 rounded-2xl bg-white border border-slate-200 shadow-xs space-y-2">
+                            <span class="inline-flex w-8 h-8 rounded-lg bg-brand-600 text-white font-bold items-center justify-center text-sm">4</span>
+                            <h3 class="font-bold text-slate-900 text-base">Данные самих клиник</h3>
+                            <p class="text-xs text-slate-600 leading-relaxed">Медцентры оформляют официальный верифицированный паспорт и обновляют расписание приёма.</p>
+                        </div>
+
+                        <div class="p-5 rounded-2xl bg-white border border-slate-200 shadow-xs space-y-2">
+                            <span class="inline-flex w-8 h-8 rounded-lg bg-brand-600 text-white font-bold items-center justify-center text-sm">5</span>
+                            <h3 class="font-bold text-slate-900 text-base">Открытые госреестры</h3>
+                            <p class="text-xs text-slate-600 leading-relaxed">Интеграция с реестрами лицензированных медорганизаций и паспортами социальных объектов.</p>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </section>
+
+        <!-- 6. БИЗНЕС-МОДЕЛЬ (ДЛЯ ПАЦИЕНТОВ, КЛИНИК И B2G) + ДОРОЖНАЯ КАРТА -->
+        <section id="for-partners" class="py-14 lg:py-20 bg-white border-b border-slate-200">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-16">
+                
+                <!-- Модель работы с аудиториями -->
+                <div class="space-y-8">
+                    <div class="text-center max-w-3xl mx-auto space-y-2">
+                        <span class="text-xs font-bold uppercase tracking-wider text-brand-700">Устойчивая социальная модель</span>
+                        <h2 class="text-2xl sm:text-3xl lg:text-4xl font-extrabold text-slate-900">
+                            Для пациентов, клиник и государства
+                        </h2>
+                        <p class="text-base text-slate-600">
+                            Сервис всегда остаётся бесплатным для людей, а монетизация строится за счёт B2B-инструментов для клиник и B2G-партнёрств.
+                        </p>
+                    </div>
+
+                    <div class="grid lg:grid-cols-3 gap-6">
+                        <!-- Карточка 1: Пациентам -->
+                        <div class="p-7 rounded-3xl bg-slate-50 border border-slate-200 flex flex-col justify-between space-y-6">
+                            <div class="space-y-4">
+                                <span class="inline-block px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 text-xs font-bold">
+                                    Всегда бесплатно
+                                </span>
+                                <h3 class="text-xl font-extrabold text-slate-900">Для пациентов и семей</h3>
+                                <p class="text-sm text-slate-600">
+                                    Наша социальная миссия — сделать медицинскую помощь доступной каждому человеку без барьеров и платных подписок.
+                                </p>
+                                <ul class="space-y-2.5 text-sm text-slate-700">
+                                    <li class="flex items-start gap-2"><span class="text-emerald-600 font-bold">✓</span> Полный доступ к карте и паспортам клиник</li>
+                                    <li class="flex items-start gap-2"><span class="text-emerald-600 font-bold">✓</span> Маршрут до безбарьерного входа</li>
+                                    <li class="flex items-start gap-2"><span class="text-emerald-600 font-bold">✓</span> Уведомления о поломках лифтов и пандусов</li>
+                                </ul>
+                            </div>
+                            <a href="#map-section" class="a11y-target w-full inline-flex items-center justify-center px-5 py-3.5 rounded-2xl bg-white hover:bg-slate-100 text-slate-900 font-bold text-sm border border-slate-300 transition">
+                                Перейти к карте
+                            </a>
+                        </div>
+
+                        <!-- Карточка 2: Клиникам (B2B) -->
+                        <div class="p-7 rounded-3xl bg-gradient-to-b from-medblue-900 to-slate-900 text-white shadow-xl flex flex-col justify-between space-y-6 relative overflow-hidden">
+                            <div class="space-y-4">
+                                <span class="inline-block px-3 py-1 rounded-full bg-brand-500/20 text-brand-300 border border-brand-400/30 text-xs font-bold">
+                                    B2B для медучреждений
+                                </span>
+                                <h3 class="text-xl font-extrabold text-white">Для клиник и медцентров</h3>
+                                <p class="text-sm text-slate-300">
+                                    Повышайте доверие пациентов, привлекайте маломобильную аудиторию и приводите объект в соответствие с нормами доступности.
+                                </p>
+                                <ul class="space-y-2.5 text-sm text-slate-200">
+                                    <li class="flex items-start gap-2"><span class="text-brand-400 font-bold">✓</span> Верифицированный профиль и знак качества</li>
+                                    <li class="flex items-start gap-2"><span class="text-brand-400 font-bold">✓</span> Профессиональный аудит и план улучшений</li>
+                                    <li class="flex items-start gap-2"><span class="text-brand-400 font-bold">✓</span> Привязка врачей и интеграция с записью</li>
+                                </ul>
+                            </div>
+                            <button type="button" onclick="openAuditModal()" class="a11y-target w-full inline-flex items-center justify-center px-5 py-3.5 rounded-2xl bg-brand-500 hover:bg-brand-400 text-slate-950 font-extrabold text-sm transition">
+                                Заказать аудит доступности
+                            </button>
+                        </div>
+
+                        <!-- Карточка 3: B2G и Партнёры -->
+                        <div class="p-7 rounded-3xl bg-slate-50 border border-slate-200 flex flex-col justify-between space-y-6">
+                            <div class="space-y-4">
+                                <span class="inline-block px-3 py-1 rounded-full bg-blue-100 text-medblue-800 text-xs font-bold">
+                                    B2G • Страховые • Соцпрограммы
+                                </span>
+                                <h3 class="text-xl font-extrabold text-slate-900">Госсектор и партнёры</h3>
+                                <p class="text-sm text-slate-600">
+                                    Аналитика реальной доступности медицинской инфраструктуры города и региона для программ здравоохранения.
+                                </p>
+                                <ul class="space-y-2.5 text-sm text-slate-700">
+                                    <li class="flex items-start gap-2"><span class="text-medblue-700 font-bold">✓</span> Мониторинг доступности поликлиник региона</li>
+                                    <li class="flex items-start gap-2"><span class="text-medblue-700 font-bold">✓</span> Интеграция со страховыми и сервисами записи</li>
+                                    <li class="flex items-start gap-2"><span class="text-medblue-700 font-bold">✓</span> Совместные грантовые программы с НКО</li>
+                                </ul>
+                            </div>
+                            <button type="button" onclick="openAuditModal('B2G / Партнёрство')" class="a11y-target w-full inline-flex items-center justify-center px-5 py-3.5 rounded-2xl bg-white hover:bg-slate-100 text-slate-900 font-bold text-sm border border-slate-300 transition">
+                                Стать партнёром проекта
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ДОРОЖНАЯ КАРТА И МЕТРИКИ УСПЕХА -->
+                <div id="roadmap" class="pt-6 border-t border-slate-200 space-y-10">
+                    <div class="flex flex-col md:flex-row md:items-end justify-between gap-4">
+                        <div>
+                            <span class="text-xs font-bold uppercase tracking-wider text-brand-700">План развития на 12 месяцев</span>
+                            <h2 class="text-2xl sm:text-3xl font-extrabold text-slate-900 mt-1">
+                                Дорожная карта стартапа
+                            </h2>
+                        </div>
+                        <p class="text-sm text-slate-600 max-w-md">
+                            Поэтапный запуск от глубинных интервью с пациентами до масштабирования на клиники и регионы.
+                        </p>
+                    </div>
+
+                    <!-- 4 этапа дорожной карты -->
+                    <div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-5">
+                        <div class="p-6 rounded-3xl bg-brand-50/70 border-2 border-brand-500 relative">
+                            <span class="inline-block px-3 py-1 rounded-lg bg-brand-600 text-white text-xs font-bold mb-3">1–2 месяца • Выполнено</span>
+                            <h3 class="text-lg font-bold text-slate-900">Исследование и прототип</h3>
+                            <p class="text-sm text-slate-700 mt-2">
+                                Глубинные интервью с 15–20 пользователями (колясочники, незрячие, пожилые), формирование стандарта паспорта доступности.
+                            </p>
+                        </div>
+
+                        <div class="p-6 rounded-3xl bg-white border-2 border-medblue-600 relative shadow-sm">
+                            <span class="inline-block px-3 py-1 rounded-lg bg-medblue-700 text-white text-xs font-bold mb-3">3–4 месяца • Текущий этап</span>
+                            <h3 class="text-lg font-bold text-slate-900">MVP для первого города</h3>
+                            <p class="text-sm text-slate-700 mt-2">
+                                Запуск веб-карты и мобильной версии, оцифровка первых 50–100 медучреждений с волонтёрами.
+                            </p>
+                        </div>
+
+                        <div class="p-6 rounded-3xl bg-slate-50 border border-slate-200">
+                            <span class="inline-block px-3 py-1 rounded-lg bg-slate-200 text-slate-800 text-xs font-bold mb-3">5–8 месяцев</span>
+                            <h3 class="text-lg font-bold text-slate-900">Запуск и альянс с НКО</h3>
+                            <p class="text-sm text-slate-600 mt-2">
+                                Публичный релиз, регулярные аудиты совместно с организациями людей с инвалидностью, первые верифицированные клиники.
+                            </p>
+                        </div>
+
+                        <div class="p-6 rounded-3xl bg-slate-50 border border-slate-200">
+                            <span class="inline-block px-3 py-1 rounded-lg bg-slate-200 text-slate-800 text-xs font-bold mb-3">9–12 месяцев</span>
+                            <h3 class="text-lg font-bold text-slate-900">Масштабирование и B2B</h3>
+                            <p class="text-sm text-slate-600 mt-2">
+                                Выход в новые города, запуск платных услуг аудита для медцентров, интеграция с сервисами онлайн-записи к врачу.
+                            </p>
+                        </div>
+                    </div>
+
+                    <!-- Ключевые метрики успеха -->
+                    <div class="bg-slate-900 text-white rounded-3xl p-6 sm:p-8">
+                        <h3 class="text-sm font-bold uppercase tracking-wider text-brand-400 mb-5">Ключевые метрики эффективности проекта</h3>
+                        <div class="grid grid-cols-2 lg:grid-cols-5 gap-6">
+                            <div>
+                                <div class="text-2xl sm:text-3xl font-extrabold text-white" id="metric-clinics-count">100+</div>
+                                <div class="text-xs sm:text-sm text-slate-300 mt-1">Описанных медучреждений в пилоте</div>
+                            </div>
+                            <div>
+                                <div class="text-2xl sm:text-3xl font-extrabold text-brand-400">92%</div>
+                                <div class="text-xs sm:text-sm text-slate-300 mt-1">Доля верифицированных и свежих данных</div>
+                            </div>
+                            <div>
+                                <div class="text-2xl sm:text-3xl font-extrabold text-white">5 000+</div>
+                                <div class="text-xs sm:text-sm text-slate-300 mt-1">Активных пациентов и сопровождающих</div>
+                            </div>
+                            <div>
+                                <div class="text-2xl sm:text-3xl font-extrabold text-emerald-400">24 клиники</div>
+                                <div class="text-xs sm:text-sm text-slate-300 mt-1">Улучшили вход и навигацию после аудита</div>
+                            </div>
+                            <div class="col-span-2 lg:col-span-1">
+                                <div class="text-2xl sm:text-3xl font-extrabold text-amber-400">B2B + B2G</div>
+                                <div class="text-xs sm:text-sm text-slate-300 mt-1">Устойчивая модель монетизации и грантов</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </section>
+
+    </main>
+
+    <!-- ПОДВАЛ (FOOTER) -->
+    <footer class="bg-slate-950 text-slate-400 py-12">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+            <div class="space-y-2">
+                <div class="flex items-center gap-2.5 text-white font-extrabold text-lg">
+                    <span class="w-8 h-8 rounded-lg bg-brand-600 flex items-center justify-center text-white text-sm">+</span>
+                    Карта доступности (MedAccess)
+                </div>
+                <p class="text-sm max-w-md">
+                    Интерактивная карта медучреждений с паспортами доступности. Помогаем людям с ограниченной мобильностью заранее планировать визит к врачу.
+                </p>
+            </div>
+
+            <div class="flex flex-wrap gap-4 text-sm font-medium">
+                <a href="#map-section" class="hover:text-white transition">Карта клиник</a>
+                <a href="#passport-features" class="hover:text-white transition">Паспорт доступности</a>
+                <a href="#for-partners" class="hover:text-white transition">Клиникам и B2G</a>
+                <button type="button" onclick="openAddModal()" class="text-brand-400 hover:text-brand-300 transition">Добавить объект</button>
+            </div>
+        </div>
+    </footer>
+
+
+    <!-- ===================================================================== -->
+    <!-- МОДАЛЬНОЕ ОКНО 1: ДЕТАЛЬНЫЙ «ПАСПОРТ ДОСТУПНОСТИ» КЛИНИКИ             -->
+    <!-- ===================================================================== -->
+    <div id="passport-modal" class="fixed inset-0 z-50 hidden overflow-y-auto bg-slate-900/70 backdrop-blur-xs p-3 sm:p-6" role="dialog" aria-modal="true" aria-labelledby="passport-modal-title">
+        <div class="min-h-full flex items-center justify-center">
+            <div class="bg-white w-full max-w-3xl rounded-3xl shadow-2xl border border-slate-200 overflow-hidden my-4">
+                
+                <!-- Верхняя шапка модального окна -->
+                <div id="passport-header-bg" class="p-6 sm:p-7 border-b border-slate-200 bg-slate-50 flex items-start justify-between gap-4">
+                    <div class="space-y-2">
+                        <div class="flex flex-wrap items-center gap-2">
+                            <span id="modal-verification-badge" class="px-3 py-1 rounded-lg text-xs font-bold bg-emerald-100 text-emerald-800">
+                                Статус проверки
+                            </span>
+                            <span id="modal-updated-date" class="text-xs text-slate-500">Обновлено сегодня</span>
+                        </div>
+                        <h2 id="passport-modal-title" class="text-xl sm:text-2xl font-extrabold text-slate-900">Название клиники</h2>
+                        <p id="modal-address" class="text-sm text-slate-600 flex items-center gap-1.5">Адрес учреждения</p>
+                    </div>
+
+                    <div class="flex items-center gap-3 shrink-0">
+                        <div id="modal-rating-box" class="px-3.5 py-2 rounded-2xl bg-emerald-600 text-white text-center">
+                            <span id="modal-rating-value" class="block text-xl font-extrabold leading-none">4.9</span>
+                            <span class="text-[10px] uppercase tracking-wider opacity-90">Рейтинг</span>
+                        </div>
+                        <button type="button" onclick="closePassportModal()" class="a11y-target p-2.5 rounded-xl bg-white hover:bg-slate-100 border border-slate-300 text-slate-700 font-bold" aria-label="Закрыть паспорт доступности">
+                            ✕
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Тело паспорта доступности -->
+                <div class="p-6 sm:p-7 space-y-6 max-h-[78vh] overflow-y-auto">
+                    
+                    <!-- Блок оперативного предупреждения (если есть поломка) -->
+                    <div id="modal-alert-banner" class="hidden p-4 rounded-2xl bg-rose-50 border-2 border-rose-300 text-rose-950 flex items-start gap-3">
+                        <span class="text-xl shrink-0">⚠️</span>
+                        <div class="text-sm">
+                            <strong class="block font-extrabold">Актуальное предупреждение от пользователей:</strong>
+                            <span id="modal-alert-text">Лифт временно не работает.</span>
+                        </div>
+                    </div>
+
+                    <!-- Описание доступного входа и кнопка построения маршрута -->
+                    <div class="p-4 sm:p-5 rounded-2xl bg-brand-50/70 border border-brand-200 space-y-3">
+                        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                            <div>
+                                <h3 class="text-sm font-extrabold text-brand-950 uppercase tracking-wide">🚪 Как попасть внутрь (Доступный вход)</h3>
+                                <p id="modal-entrance-desc" class="text-sm text-slate-800 mt-1">Описание входа</p>
+                            </div>
+                            <div class="flex flex-wrap gap-2 shrink-0">
+                                <button type="button" onclick="showRouteOnMapFromModal()" 
+                                    class="a11y-target px-4 py-2.5 rounded-xl bg-medblue-800 hover:bg-medblue-900 text-white font-bold text-xs sm:text-sm shadow-xs transition">
+                                    🗺️ Показать маршрут на карте
+                                </button>
+                                <button type="button" id="build-route-btn" onclick="toggleEntranceRoute()" 
+                                    class="a11y-target px-4 py-2.5 rounded-xl bg-brand-700 hover:bg-brand-800 text-white font-bold text-xs sm:text-sm shadow-xs transition">
+                                    📋 Пошагово
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Пошаговая подсказка маршрута (раскрывается по клику) -->
+                        <div id="entrance-route-steps" class="hidden pt-3 border-t border-brand-200 text-xs sm:text-sm text-slate-800 space-y-1.5">
+                            <p class="font-bold text-brand-900">Пошаговый ориентир до безбарьерного входа:</p>
+                            <ol id="modal-route-list" class="list-decimal list-inside space-y-1 text-slate-700"></ol>
+                        </div>
+                    </div>
+
+                    <!-- Чек-лист параметров доступности -->
+                    <div>
+                        <h3 class="text-base font-extrabold text-slate-900 mb-3">Параметры «Паспорта доступности»</h3>
+                        <div id="modal-checklist-grid" class="grid sm:grid-cols-2 gap-3 text-sm">
+                            <!-- Заполняется из JS -->
+                        </div>
+                    </div>
+
+                    <!-- Навигация по врачам и этажам -->
+                    <div>
+                        <h3 class="text-base font-extrabold text-slate-900 mb-3">🩺 Врачи, этажи и доступность кабинетов</h3>
+                        <div id="modal-doctors-list" class="space-y-2">
+                            <!-- Заполняется из JS -->
+                        </div>
+                    </div>
+
+                    <!-- Быстрое сообщение о проблеме / обновлении статуса -->
+                    <div class="p-4 sm:p-5 rounded-2xl bg-slate-100 border border-slate-200 space-y-3">
+                        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                            <div>
+                                <h3 class="text-sm font-extrabold text-slate-900">Актуальность данных и статус на месте</h3>
+                                <p class="text-xs text-slate-600">Подтвердите, что всё работает, или сообщите о поломке лифта / пандуса.</p>
+                            </div>
+                            <div class="flex flex-wrap gap-2">
+                                <button type="button" onclick="confirmClinicData()" class="a11y-target px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs transition">
+                                    👍 Подтвердить данные (<span id="modal-confirmations-count">12</span>)
+                                </button>
+                                <button type="button" id="toggle-report-form-btn" onclick="toggleReportForm()" class="a11y-target px-3.5 py-2 rounded-xl bg-white hover:bg-rose-50 text-rose-700 border border-rose-300 font-bold text-xs transition">
+                                    ⚠️ Сообщить о проблеме
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Скрытая форма быстрого репорта -->
+                        <form id="quick-report-form" class="hidden pt-3 border-t border-slate-200 space-y-3">
+                            <div class="grid sm:grid-cols-2 gap-2">
+                                <button type="button" onclick="setQuickReportPreset('Лифт временно не работает — подъём выше 1 этажа невозможен', true)" class="p-2.5 text-left text-xs font-semibold rounded-xl bg-white border border-slate-300 hover:border-rose-400">
+                                    🛗 Лифт не работает
+                                </button>
+                                <button type="button" onclick="setQuickReportPreset('Пандус завален снегом / заблокирован припаркованным авто', true)" class="p-2.5 text-left text-xs font-semibold rounded-xl bg-white border border-slate-300 hover:border-rose-400">
+                                    ❄️ Пандус заблокирован
+                                </button>
+                                <button type="button" onclick="setQuickReportPreset('Лифт починили, проезд на все этажи снова свободен!', false)" class="p-2.5 text-left text-xs font-semibold rounded-xl bg-white border border-slate-300 hover:border-emerald-500">
+                                    ✅ Проблема устранена (всё работает)
+                                </button>
+                                <button type="button" onclick="setQuickReportPreset('Подтверждаю: данные в паспорте полностью актуальны', false)" class="p-2.5 text-left text-xs font-semibold rounded-xl bg-white border border-slate-300 hover:border-emerald-500">
+                                    👍 Подтвердить актуальность
+                                </button>
+                            </div>
+                            <div class="flex flex-col sm:flex-row gap-2">
+                                <input type="text" id="report-comment-input" required placeholder="Опишите ситуацию (например: не работает кнопка вызова на 2 этаже)..." 
+                                    class="a11y-target flex-1 px-3.5 py-2.5 rounded-xl border border-slate-300 bg-white text-sm">
+                                <input type="hidden" id="report-is-critical" value="true">
+                                <button type="submit" class="a11y-target px-5 py-2.5 rounded-xl bg-medblue-800 hover:bg-medblue-900 text-white font-bold text-sm">
+                                    Обновить статус
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+
+                    <!-- Отзывы пациентов -->
+                    <div>
+                        <h3 class="text-base font-extrabold text-slate-900 mb-3">Отзывы и подтверждения посетителей (<span id="modal-reviews-count">0</span>)</h3>
+                        <div id="modal-reviews-list" class="space-y-2.5">
+                            <!-- Отзывы из JS -->
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+        </div>
+    </div>
+
+
+    <!-- ===================================================================== -->
+    <!-- МОДАЛЬНОЕ ОКНО 2: КРАУДСОРСИНГ — ДОБАВИТЬ МЕДУЧРЕЖДЕНИЕ               -->
+    <!-- ===================================================================== -->
+    <div id="add-modal" class="fixed inset-0 z-50 hidden overflow-y-auto bg-slate-900/70 backdrop-blur-xs p-3 sm:p-6" role="dialog" aria-modal="true" aria-labelledby="add-modal-title">
+        <div class="min-h-full flex items-center justify-center">
+            <div class="bg-white w-full max-w-2xl rounded-3xl shadow-2xl border border-slate-200 overflow-hidden my-4">
+                
+                <div class="p-6 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
+                    <div>
+                        <span class="text-xs font-bold text-brand-700 uppercase">Краудсорсинг MedAccess</span>
+                        <h2 id="add-modal-title" class="text-xl font-extrabold text-slate-900">Добавить медучреждение на карту</h2>
+                    </div>
+                    <button type="button" onclick="closeAddModal()" class="a11y-target p-2.5 rounded-xl bg-white hover:bg-slate-100 border border-slate-300 text-slate-700 font-bold" aria-label="Закрыть форму добавления">
+                        ✕
+                    </button>
+                </div>
+
+                <form id="add-clinic-form" class="p-6 space-y-5 max-h-[80vh] overflow-y-auto">
+                    <!-- Координаты точки на карте -->
+                    <div class="p-3.5 rounded-2xl bg-brand-50 border border-brand-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                        <div class="text-xs">
+                            <span class="font-bold text-brand-950 block">📍 Точка на карте:</span>
+                            <span id="picked-coords-label" class="text-brand-800">Центр города (можно выбрать кликом по карте)</span>
+                        </div>
+                        <button type="button" onclick="pickLocationFromAddModal()" class="a11y-target shrink-0 px-3.5 py-2 rounded-xl bg-white hover:bg-brand-100 text-brand-800 border border-brand-300 font-bold text-xs transition">
+                            🎯 Указать точку на карте
+                        </button>
+                    </div>
+
+                    <div class="grid sm:grid-cols-2 gap-4">
+                        <div>
+                            <label for="new-clinic-name" class="block text-sm font-bold text-slate-800 mb-1">Название клиники / поликлиники *</label>
+                            <input type="text" id="new-clinic-name" required placeholder="Например: Детская поликлиника №2"
+                                class="a11y-target w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm">
+                        </div>
+                        <div>
+                            <label for="new-clinic-address" class="block text-sm font-bold text-slate-800 mb-1">Адрес *</label>
+                            <input type="text" id="new-clinic-address" required placeholder="Например: ул. Толе би, 85"
+                                class="a11y-target w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm">
+                        </div>
+                    </div>
+
+                    <div class="grid sm:grid-cols-2 gap-4">
+                        <div>
+                            <label for="new-clinic-doctor" class="block text-sm font-bold text-slate-800 mb-1">Какие врачи принимают</label>
+                            <input type="text" id="new-clinic-doctor" placeholder="Например: Педиатр, ЛОР, УЗИ (1 этаж)"
+                                class="a11y-target w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm">
+                        </div>
+                        <div>
+                            <label for="new-clinic-rating" class="block text-sm font-bold text-slate-800 mb-1">Ваша оценка доступности (1–5) *</label>
+                            <select id="new-clinic-rating" class="a11y-target w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm font-semibold">
+                                <option value="4.8">🟢 4.8 — Полностью доступно без барьеров</option>
+                                <option value="3.8">🟡 3.8 — Частично доступно (есть нюансы)</option>
+                                <option value="2.2">🔴 2.2 — Серьезные барьеры (ступеньки / узко)</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div>
+                        <span class="block text-sm font-bold text-slate-800 mb-2">Отметьте, что есть в учреждении:</span>
+                        <div class="grid sm:grid-cols-2 gap-2.5 text-sm">
+                            <label class="flex items-center gap-2.5 p-3 rounded-xl border border-slate-200 hover:bg-slate-50 cursor-pointer">
+                                <input type="checkbox" id="chk-ramp" checked class="w-4 h-4 accent-brand-600">
+                                <span>Удобный пандус / вход без ступеней</span>
+                            </label>
+                            <label class="flex items-center gap-2.5 p-3 rounded-xl border border-slate-200 hover:bg-slate-50 cursor-pointer">
+                                <input type="checkbox" id="chk-elevator" class="w-4 h-4 accent-brand-600">
+                                <span>Работающий широкий лифт</span>
+                            </label>
+                            <label class="flex items-center gap-2.5 p-3 rounded-xl border border-slate-200 hover:bg-slate-50 cursor-pointer">
+                                <input type="checkbox" id="chk-toilet" class="w-4 h-4 accent-brand-600">
+                                <span>Адаптированный туалет для МГН</span>
+                            </label>
+                            <label class="flex items-center gap-2.5 p-3 rounded-xl border border-slate-200 hover:bg-slate-50 cursor-pointer">
+                                <input type="checkbox" id="chk-parking" checked class="w-4 h-4 accent-brand-600">
+                                <span>Парковка для людей с инвалидностью</span>
+                            </label>
+                            <label class="flex items-center gap-2.5 p-3 rounded-xl border border-slate-200 hover:bg-slate-50 cursor-pointer sm:col-span-2">
+                                <input type="checkbox" id="chk-tactile" class="w-4 h-4 accent-brand-600">
+                                <span>Тактильная плитка, таблички Брайля или помощь сотрудника</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div>
+                        <label for="new-clinic-entrance" class="block text-sm font-bold text-slate-800 mb-1">Описание входа и комментарий *</label>
+                        <textarea id="new-clinic-entrance" rows="3" required placeholder="Например: Вход с пандусом находится с левого торца здания, двери широкие 100 см, на входе дежурит администратор."
+                            class="w-full p-3.5 rounded-xl border border-slate-300 text-sm"></textarea>
+                    </div>
+
+                    <div class="flex flex-col sm:flex-row justify-end gap-3 pt-2">
+                        <button type="button" onclick="closeAddModal()" class="a11y-target px-5 py-3 rounded-xl border border-slate-300 text-slate-700 font-semibold text-sm">
+                            Отмена
+                        </button>
+                        <button type="submit" class="a11y-target px-6 py-3 rounded-xl bg-brand-600 hover:bg-brand-700 text-white font-bold text-sm shadow-sm">
+                            Опубликовать на карте
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+
+    <!-- ===================================================================== -->
+    <!-- МОДАЛЬНОЕ ОКНО 3: ЗАЯВКА НА АУДИТ ДЛЯ КЛИНИК И ПАРТНЁРОВ (B2B/B2G)    -->
+    <!-- ===================================================================== -->
+    <div id="audit-modal" class="fixed inset-0 z-50 hidden overflow-y-auto bg-slate-900/70 backdrop-blur-xs p-3 sm:p-6" role="dialog" aria-modal="true" aria-labelledby="audit-modal-title">
+        <div class="min-h-full flex items-center justify-center">
+            <div class="bg-white w-full max-w-lg rounded-3xl shadow-2xl border border-slate-200 overflow-hidden my-4">
+                <div class="p-6 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
+                    <div>
+                        <span class="text-xs font-bold text-medblue-700 uppercase">Сотрудничество с MedAccess</span>
+                        <h2 id="audit-modal-title" class="text-xl font-extrabold text-slate-900">Заявка на аудит и верификацию</h2>
+                    </div>
+                    <button type="button" onclick="closeAuditModal()" class="a11y-target p-2.5 rounded-xl bg-white hover:bg-slate-100 border border-slate-300 text-slate-700 font-bold" aria-label="Закрыть форму заявки">
+                        ✕
+                    </button>
+                </div>
+
+                <form id="audit-request-form" class="p-6 space-y-4">
+                    <div>
+                        <label for="audit-org-name" class="block text-sm font-bold text-slate-800 mb-1">Название клиники или организации *</label>
+                        <input type="text" id="audit-org-name" required placeholder="Например: Медицинский центр «Здоровье»"
+                            class="a11y-target w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm">
+                    </div>
+                    <div>
+                        <label for="audit-type" class="block text-sm font-bold text-slate-800 mb-1">Формат сотрудничества</label>
+                        <select id="audit-type" class="a11y-target w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm font-medium">
+                            <option value="Верифицированный паспорт + выездной аудит">Верифицированный паспорт + выездной аудит клиники</option>
+                            <option value="Подключение сети клиник">Подключение сети клиник (API / интеграция расписания)</option>
+                            <option value="B2G / Партнёрство">B2G / Грантовая программа / Страховая компания</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label for="audit-contact" class="block text-sm font-bold text-slate-800 mb-1">Контактное лицо и телефон / Email *</label>
+                        <input type="text" id="audit-contact" required placeholder="+7 (700) 000-00-00 или email@clinic.kz"
+                            class="a11y-target w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm">
+                    </div>
+                    <div class="flex justify-end gap-3 pt-2">
+                        <button type="button" onclick="closeAuditModal()" class="a11y-target px-4 py-2.5 rounded-xl border border-slate-300 text-slate-700 font-semibold text-sm">
+                            Закрыть
+                        </button>
+                        <button type="submit" class="a11y-target px-6 py-2.5 rounded-xl bg-medblue-800 hover:bg-medblue-900 text-white font-bold text-sm">
+                            Отправить заявку
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+
+    <!-- ВСПЛЫВАЮЩЕЕ УВЕДОМЛЕНИЕ (TOAST MESSAGE BOX — ВМЕСТО ALERT) -->
+    <div id="toast-notification" role="status" aria-live="polite" 
+        class="fixed bottom-5 right-5 z-[60] hidden max-w-sm bg-slate-900 text-white px-5 py-4 rounded-2xl shadow-2xl border border-slate-700 flex items-start gap-3 transition-all">
+        <span id="toast-icon" class="text-xl shrink-0">✅</span>
+        <div class="text-sm">
+            <strong id="toast-title" class="block font-bold">Успешно!</strong>
+            <span id="toast-message" class="text-slate-300 text-xs">Данные обновлены.</span>
+        </div>
+    </div>
+
+
+    <!-- JAVASCRIPT ЛОГИКА ПРИЛОЖЕНИЯ -->
+    <script>
+        /**
+         * Исходные данные медучреждений с реальными координатами (lat, lng)
+         * и резервными координатами схемы (mapX, mapY)
+         */
+        let clinicsData = [
+            {
+                id: 1,
+                name: "Городская поликлиника №4",
+                address: "ул. Абая, 42",
+                lat: 43.2389,
+                lng: 76.9124,
+                routeStartLat: 43.2384,
+                routeStartLng: 76.9112,
+                mapX: 495,
+                mapY: 325,
+                routeStartX: 430,
+                routeStartY: 355,
+                routeDistance: "35 м",
+                routeTime: "1 мин без ступеней",
+                routeStartLabel: "Парковка МГН (пр. Абая)",
+                confirmations: 28,
+                rating: 4.9,
+                verification: "Проверено клиникой и НКО",
+                verificationType: "verified",
+                updatedAt: "Проверено 2 дня назад",
+                alert: null,
+                entranceDesc: "Отдельный безбарьерный вход №2 с правого торца здания (со стороны парковки). Пологий пандус 5°, автоматические раздвижные двери шириной 115 см.",
+                routeSteps: [
+                    "Заезд с пр. Абая на внутреннюю парковку клиники (2 выделенных места для инвалидов прямо у входа).",
+                    "Двигайтесь по тактильной дорожке 12 метров вдоль правого фасада к вывеске «Вход №2 — Безбарьерная среда».",
+                    "Автоматические двери открываются при приближении; сразу за ними находится стойка дежурного администратора-ассистента."
+                ],
+                features: {
+                    ramp: true,
+                    elevator: true,
+                    toilet: true,
+                    parking: true,
+                    tactile: true
+                },
+                specs: {
+                    rampInfo: "Пологий пандус 5°, двойные поручни на высоте 70 и 90 см",
+                    doorWidth: "115 см (автоматические раздвижные, без порога)",
+                    elevatorInfo: "Работает • Грузопассажирский 140×210 см, кнопки Брайля",
+                    toiletInfo: "Есть на 1 и 3 этажах • Поручни, разворот 1.6 м, кнопка вызова",
+                    parkingInfo: "4 выделенных места в 15 м от входа, пониженный бордюр",
+                    navigationInfo: "Тактильная плитка, таблички Брайля, сопровождение волонтёра"
+                },
+                doctors: [
+                    { specialty: "Терапевт (дежурный)", floor: "1 этаж, каб. 104", access: "Без ступеней, прямой проезд от входа", ok: true },
+                    { specialty: "Кардиолог и ЭКГ", floor: "3 этаж, каб. 312", access: "Доступно на широком лифте №2", ok: true },
+                    { specialty: "Офтальмолог", floor: "2 этаж, каб. 208", access: "Лифт №2, в кабинете контрастная разметка", ok: true }
+                ],
+                reviews: [
+                    { author: "Айгуль М. (на электроколяске)", date: "3 дня назад", text: "Очень удобный заезд со двора! Широкий лифт, без проблем попала к кардиологу на 3 этаж." },
+                    { author: "Сергей В. (волонтёр НКО)", date: "1 неделю назад", text: "Замерили пандус и двери — всё соответствует стандартам, туалет на 1 этаже открыт и чист." }
+                ]
+            },
+            {
+                id: 2,
+                name: "Медицинский центр «МедЛайф Плюс»",
+                address: "пр. Достык, 108",
+                lat: 43.2435,
+                lng: 76.9568,
+                routeStartLat: 43.2429,
+                routeStartLng: 76.9558,
+                mapX: 650,
+                mapY: 295,
+                routeStartX: 600,
+                routeStartY: 325,
+                routeDistance: "45 м",
+                routeTime: "2 мин по ровному тротуару",
+                routeStartLabel: "Остановка «пр. Достык»",
+                confirmations: 19,
+                rating: 4.7,
+                verification: "Проверено клиникой",
+                verificationType: "verified",
+                updatedAt: "Обновлено вчера",
+                alert: null,
+                entranceDesc: "Центральный вход в одном уровне с тротуаром (0 ступеней). Широкие распашные двери 105 см с кнопкой вызова персонала.",
+                routeSteps: [
+                    "От остановки «пр. Достык» 45 метров по ровному тротуару без перепадов высоты.",
+                    "Вход расположен по центру фасада, порог отсутствует.",
+                    "Регистратура имеет заниженную стойку для людей на колясках."
+                ],
+                features: {
+                    ramp: true,
+                    elevator: true,
+                    toilet: true,
+                    parking: true,
+                    tactile: false
+                },
+                specs: {
+                    rampInfo: "Вход в уровень с землёй (пандус не требуется)",
+                    doorWidth: "105 см (двери с доводчиком, кнопка помощи)",
+                    elevatorInfo: "Работает • Пассажирский широкий 120×190 см",
+                    toiletInfo: "Есть на 1 этаже • Адаптированная кабина с поручнями",
+                    parkingInfo: "2 места у шлагбаума (охрана открывает по звонку)",
+                    navigationInfo: "Контрастные наклейки на стеклянных дверях (тактильной плитки нет)"
+                },
+                doctors: [
+                    { specialty: "Невролог", floor: "2 этаж, каб. 201", access: "Подъём на лифте, широкие коридоры", ok: true },
+                    { specialty: "УЗИ и функциональная диагностика", floor: "1 этаж, каб. 110", access: "На первом этаже, кушетка с регулировкой высоты", ok: true },
+                    { specialty: "Стоматолог-терапевт", floor: "2 этаж, каб. 215", access: "Доступно на лифте", ok: true }
+                ],
+                reviews: [
+                    { author: "Дмитрий К. (с костылями)", date: "5 дней назад", text: "Ни одной ступеньки на входе, персонал сразу помог с верхней одеждой." }
+                ]
+            },
+            {
+                id: 3,
+                name: "Диагностический центр «Алатау Мед»",
+                address: "ул. Толе би, 154",
+                lat: 43.2538,
+                lng: 76.9245,
+                routeStartLat: 43.2532,
+                routeStartLng: 76.9234,
+                mapX: 720,
+                mapY: 175,
+                routeStartX: 660,
+                routeStartY: 210,
+                routeDistance: "65 м",
+                routeTime: "3 мин (объезд во двор)",
+                routeStartLabel: "Парковка (ул. Толе би)",
+                confirmations: 14,
+                rating: 3.6,
+                verification: "Подтверждено волонтёрами",
+                verificationType: "verified",
+                updatedAt: "Обновлено 4 дня назад",
+                alert: null,
+                entranceDesc: "На главном входе 4 ступени. С левого торца здания есть металлический пандус (угол около 9° — крутоват для самостоятельного подъёма, лучше с сопровождающим).",
+                routeSteps: [
+                    "Обойдите здание слева через арку во двор.",
+                    "У подъезда с зелёным козырьком установлен металлический пандус с поручнями.",
+                    "Внутренняя дверь шириной 88 см — проезжает стандартная коляска, для широкой потребуется открыть вторую створку."
+                ],
+                features: {
+                    ramp: true,
+                    elevator: true,
+                    toilet: false,
+                    parking: true,
+                    tactile: false
+                },
+                specs: {
+                    rampInfo: "Металлический пандус 9° (рекомендуется помощь сопровождающего)",
+                    doorWidth: "88 см (вторая створка открывается по просьбе)",
+                    elevatorInfo: "Работает • Кабина 110×140 см (помещается стандартная коляска)",
+                    toiletInfo: "Обычный санузел (узкий дверной проём 68 см)",
+                    parkingInfo: "1 выделенное место во дворе",
+                    navigationInfo: "Голосовое объявление очереди в холле"
+                },
+                doctors: [
+                    { specialty: "МРТ и КТ диагностика", floor: "1 этаж, каб. 102", access: "Доступно на 1 этаже после проезда через левый вход", ok: true },
+                    { specialty: "Эндокринолог", floor: "3 этаж, каб. 305", access: "На лифте, перед кабинетом небольшой порог 2 см", ok: true },
+                    { specialty: "Хирург", floor: "4 этаж (мансарда)", access: "Лифт идёт только до 3 этажа, далее 14 ступеней!", ok: false }
+                ],
+                reviews: [
+                    { author: "Елена П. (мама с коляской)", date: "1 неделю назад", text: "На МРТ на 1 этаже прошли спокойно, но пандус с торца довольно крутой." }
+                ]
+            },
+            {
+                id: 4,
+                name: "Городская клиническая больница №7 (Корпус Б)",
+                address: "мкр. Калкаман, 20",
+                lat: 43.2265,
+                lng: 76.8428,
+                routeStartLat: 43.2259,
+                routeStartLng: 76.8415,
+                mapX: 165,
+                mapY: 365,
+                routeStartX: 90,
+                routeStartY: 355,
+                routeDistance: "70 м",
+                routeTime: "3 мин до пандуса приёмного",
+                routeStartLabel: "КПП / Парковка (мкр. Калкаман)",
+                confirmations: 9,
+                rating: 2.5,
+                verification: "Данные пользователей",
+                verificationType: "community",
+                updatedAt: "Обновлено 2 часа назад",
+                alert: "Грузовой лифт в корпусе Б временно на ремонте до пятницы! Доступны только кабинеты 1 этажа.",
+                entranceDesc: "Вход в приёмное отделение через пандус с правой стороны крыльца. Ширина дверей 95 см.",
+                routeSteps: [
+                    "Подъезд на такси возможен прямо к пандусу приёмного отделения.",
+                    "Внимание: из-за ремонта лифта приём врачей с 2–4 этажей для маломобильных пациентов перенесён в каб. 105 на 1 этаже (по предварительному звонку)."
+                ],
+                features: {
+                    ramp: true,
+                    elevator: false,
+                    toilet: true,
+                    parking: true,
+                    tactile: false
+                },
+                specs: {
+                    rampInfo: "Бетонный пандус 7° с поручнями",
+                    doorWidth: "95 см (распашные двери)",
+                    elevatorInfo: "НЕ РАБОТАЕТ (ремонт до конца недели)",
+                    toiletInfo: "Есть на 1 этаже в приёмном отделении",
+                    parkingInfo: "3 места у КПП",
+                    navigationInfo: "Только информационные стенды"
+                },
+                doctors: [
+                    { specialty: "Травматолог-ортопед", floor: "1 этаж, каб. 105", access: "Доступно на 1 этаже без препятствий", ok: true },
+                    { specialty: "Уролог", floor: "3 этаж, каб. 318", access: "Временно недоступно на коляске из-за поломки лифта", ok: false }
+                ],
+                reviews: [
+                    { author: "Марат Т.", date: "2 часа назад", text: "Предупреждаю: лифт в корпусе Б закрыт на ремонт! Хорошо, что травматолог принимает на 1 этаже." }
+                ]
+            },
+            {
+                id: 5,
+                name: "Стоматологическая клиника «ДентаКомфорт»",
+                address: "ул. Сатпаева, 64",
+                lat: 43.2321,
+                lng: 76.9285,
+                routeStartLat: 43.2316,
+                routeStartLng: 76.9276,
+                mapX: 485,
+                mapY: 465,
+                routeStartX: 440,
+                routeStartY: 505,
+                routeDistance: "40 м",
+                routeTime: "⚠️ 7 ступеней на входе",
+                routeStartLabel: "Тротуар (ул. Сатпаева)",
+                confirmations: 7,
+<!-- ... existing code ... ...
+                id: 6,
+                name: "Центр реабилитации и офтальмологии «Жарык»",
+                address: "ул. Жандосова, 58",
+                lat: 43.2218,
+                lng: 76.8982,
+                routeStartLat: 43.2212,
+                routeStartLng: 76.8971,
+                mapX: 215,
+                mapY: 585,
+                routeStartX: 155,
+                routeStartY: 635,
+                routeDistance: "50 м",
+                routeTime: "2 мин по тактильной дорожке",
+                routeStartLabel: "Остановка «ул. Жандосова»",
+                confirmations: 34,
+                rating: 5.0,
+                verification: "Проверено клиникой и НКО",
+                verificationType: "verified",
+                updatedAt: "Проверено вчера",
+                alert: null,
+                entranceDesc: "Эталонная безбарьерная среда: нулевой порог, подогреваемый пандус, тактильные направляющие от остановки и звуковой маяк над входом.",
+                routeSteps: [
+                    "От остановки «ул. Жандосова» ведут тактильные наземные указатели прямо к входной группе.",
+                    "Над входом установлен звуковой маяк и кнопка вызова сурдопереводчика / ассистента.",
+                    "Все кабинеты 1 и 2 этажей полностью адаптированы для колясок и незрячих пациентов."
+                ],
+                features: {
+                    ramp: true,
+                    elevator: true,
+                    toilet: true,
+                    parking: true,
+                    tactile: true
+                },
+                specs: {
+                    rampInfo: "Нулевой вход + дублирующий пандус 4° с подогревом",
+                    doorWidth: "120 см (сенсорные двери)",
+                    elevatorInfo: "Работает • Больничный лифт 160×220 см с голосовым информатором",
+                    toiletInfo: "На каждом этаже • Полное оснащение по ГОСТ/СНиП",
+                    parkingInfo: "6 широких мест прямо у входа",
+                    navigationInfo: "Полная тактильная навигация, Брайль, мнемосхемы, ассистенты"
+                },
+                doctors: [
+                    { specialty: "Офтальмолог / Микрохирургия", floor: "1 этаж, каб. 101", access: "Полная доступность для незрячих и колясочников", ok: true },
+                    { specialty: "Реабилитолог / ЛФК", floor: "2 этаж, зал №1", access: "Большой лифт с голосовым сопровождением", ok: true },
+                    { specialty: "Терапевт / Кардиолог", floor: "1 этаж, каб. 108", access: "Без барьеров", ok: true }
+                ],
+                reviews: [
+                    { author: "Алия С. (незрячий пациент)", date: "2 дня назад", text: "Тактильная плитка идёт прямо от остановки, голосовой информатор в лифте и доброжелательный персонал." }
+                ]
+            }
+        ];
+
+        // Текущие активные фильтры
+        let activeFilters = {
+            search: "",
+            rating: "all",
+            ramp: false,
+            elevator: false,
+            toilet: false,
+            parking: false,
+            tactile: false,
+            verified: false
+        };
+
+        /**
+         * Определяет цветовую категорию рейтинга (зелёный / жёлтый / красный)
+         */
+        function getRatingCategory(rating) {
+            if (rating >= 4.5) {
+                return {
+                    key: "green",
+                    label: "Доступно",
+                    hex: "#10b981",
+                    bgClass: "bg-emerald-600",
+                    badgeClass: "bg-emerald-100 text-emerald-900 border-emerald-200"
+                };
+            }
+            if (rating >= 3.0) {
+                return {
+                    key: "yellow",
+                    label: "Частично",
+                    hex: "#f59e0b",
+                    bgClass: "bg-amber-500",
+                    badgeClass: "bg-amber-100 text-amber-900 border-amber-200"
+                };
+            }
+            return {
+                key: "red",
+                label: "Барьеры",
+                hex: "#e11d48",
+                bgClass: "bg-rose-600",
+                badgeClass: "bg-rose-100 text-rose-900 border-rose-200"
+            };
+        }
+
+        /**
+         * Фильтрует список медучреждений по поисковому запросу и критериям доступности
+         */
+        function getFilteredClinics() {
+            const q = (activeFilters.search || "").trim().toLowerCase();
+
+            return clinicsData.filter(clinic => {
+                if (activeFilters.rating !== "all") {
+                    const cat = getRatingCategory(clinic.rating);
+                    if (cat.key !== activeFilters.rating) return false;
+                }
+                if (activeFilters.ramp && !clinic.features.ramp) return false;
+                if (activeFilters.elevator && !clinic.features.elevator) return false;
+                if (activeFilters.toilet && !clinic.features.toilet) return false;
+                if (activeFilters.parking && !clinic.features.parking) return false;
+                if (activeFilters.tactile && !clinic.features.tactile) return false;
+                if (activeFilters.verified && clinic.verificationType !== "verified") return false;
+
+                if (q) {
+                    const inName = clinic.name.toLowerCase().includes(q);
+                    const inAddress = clinic.address.toLowerCase().includes(q);
+                    const inDoctors = (clinic.doctors || []).some(d =>
+                        d.specialty.toLowerCase().includes(q) || d.floor.toLowerCase().includes(q)
+                    );
+                    if (!inName && !inAddress && !inDoctors) return false;
+                }
+
+                return true;
+            });
+        }
+
+        // Состояние интерактивной карты (Leaflet + резервный режим)
+        let leafletMap = null;
+        let leafletMarkersLayer = null;
+        let leafletRouteLayer = null;
+        let useFallbackSvg = false;
+
+        let mapState = {
+            scale: 1,
+            translateX: 0,
+            translateY: 0,
+            isDragging: false,
+            dragMoved: false,
+            startX: 0,
+            startY: 0,
+            isPickingLocation: false,
+            pickedCoords: null,
+            defaultCenter: [43.2385, 76.9180],
+            defaultZoom: 13
+        };
+        let currentSelectedClinicId = null;
+        let activeRouteClinicId = null;
+
+        /**
+         * Применяет панорамирование и масштаб к резервной SVG-карте
+         */
+        function updateMapTransform() {
+            const group = document.getElementById("map-transform-group");
+            if (group) {
+                group.setAttribute(
+                    "transform",
+                    `translate(${mapState.translateX}, ${mapState.translateY}) scale(${mapState.scale})`
+                );
+            }
+        }
+
+        /**
+         * Плавное центрирование карты на точке клиники (настоящая карта Leaflet или резервная схема)
+         */
+        function focusMapOnPoint(x, y, targetScale = 1.45, clinicObj = null) {
+            if (!useFallbackSvg && leafletMap && clinicObj && typeof clinicObj.lat === "number") {
+                leafletMap.setView([clinicObj.lat, clinicObj.lng], 16, { animate: true });
+                return;
+            }
+            mapState.scale = targetScale;
+            mapState.translateX = 500 - x * targetScale;
+            mapState.translateY = 360 - y * targetScale;
+            updateMapTransform();
+        }
+
+        function resetMapView() {
+            if (!useFallbackSvg && leafletMap) {
+                leafletMap.setView(mapState.defaultCenter, mapState.defaultZoom, { animate: true });
+                return;
+            }
+            mapState.scale = 1;
+            mapState.translateX = 0;
+            mapState.translateY = 0;
+            updateMapTransform();
+        }
+
+        /**
+         * Преобразование координат клика в координаты карты (lat/lng для Leaflet или mapX/mapY для SVG)
+         */
+        function clientToMapCoords(clientX, clientY) {
+            if (!useFallbackSvg && leafletMap) {
+                const containerRect = leafletMap.getContainer().getBoundingClientRect();
+                const point = L.point(clientX - containerRect.left, clientY - containerRect.top);
+                const latlng = leafletMap.containerPointToLatLng(point);
+                const svg = document.getElementById("hybrid-map-svg");
+                const rect = svg ? svg.getBoundingClientRect() : containerRect;
+                const svgX = ((clientX - rect.left) / rect.width) * 1000;
+                const svgY = ((clientY - rect.top) / rect.height) * 720;
+                return {
+                    lat: Number(latlng.lat.toFixed(5)),
+                    lng: Number(latlng.lng.toFixed(5)),
+                    mapX: Math.max(40, Math.min(960, Math.round(svgX))),
+                    mapY: Math.max(40, Math.min(680, Math.round(svgY)))
+                };
+            }
+
+            const svg = document.getElementById("hybrid-map-svg");
+            const rect = svg.getBoundingClientRect();
+            const svgX = ((clientX - rect.left) / rect.width) * 1000;
+            const svgY = ((clientY - rect.top) / rect.height) * 720;
+
+            const mapX = Math.round((svgX - mapState.translateX) / mapState.scale);
+            const mapY = Math.round((svgY - mapState.translateY) / mapState.scale);
+            return {
+                lat: 43.2385 + (360 - mapY) * 0.00018,
+                lng: 76.9180 + (mapX - 500) * 0.00024,
+                mapX: Math.max(40, Math.min(960, mapX)),
+                mapY: Math.max(40, Math.min(680, mapY))
+            };
+        }
+
+        // ---- Карта: тайловые провайдеры пробуются по очереди; если все недоступны — векторная схема ----
+        const TILE_PROVIDERS = [
+            {
+                name: "CARTO Voyager",
+                url: "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",
+                options: {
+                    subdomains: "abcd",
+                    maxZoom: 20,
+                    attribution: "&copy; <a href='https://www.openstreetmap.org/copyright'>OpenStreetMap</a> &copy; <a href='https://carto.com/attributions'>CARTO</a>"
+                }
+            },
+            {
+                name: "OpenStreetMap",
+                url: "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+                options: {
+                    maxZoom: 19,
+                    attribution: "&copy; <a href='https://www.openstreetmap.org/copyright'>OpenStreetMap</a>"
+                }
+            }
+        ];
+        let mapInitialized = false;
+        let fallbackHandlersAttached = false;
+        let tileLayerRef = null;
+        let tileProviderIndex = 0;
+        let tileWatchdog = null;
+
+        /**
+         * Плашка поверх карты, когда включена резервная схема (с кнопкой повторной попытки)
+         */
+        function showMapNotice(show) {
+            const viewport = document.getElementById("hybrid-map-viewport");
+            if (!viewport) return;
+            let notice = document.getElementById("map-fallback-notice");
+            if (!show) {
+                if (notice) notice.classList.add("hidden");
+                return;
+            }
+            if (!notice) {
+                notice = document.createElement("div");
+                notice.id = "map-fallback-notice";
+                notice.className = "absolute top-4 right-4 z-20 max-w-[240px] bg-amber-50 border border-amber-300 text-amber-900 rounded-2xl px-3 py-2 text-xs font-semibold shadow-lg space-y-1.5";
+                notice.innerHTML = '<div>Не удалось загрузить подложку карты — показана схема.</div>' +
+                    '<button type="button" class="px-2.5 py-1 rounded-lg bg-amber-200 hover:bg-amber-300 font-bold" onclick="retryRealMap()">Повторить</button>';
+                viewport.appendChild(notice);
+            }
+            notice.classList.remove("hidden");
+        }
+
+        /**
+         * Перетаскивание и масштаб резервной SVG-схемы. Обработчики вешаются один раз
+         * и работают только пока включён резервный режим (не мешают Leaflet).
+         */
+        function attachFallbackHandlers() {
+            if (fallbackHandlersAttached) return;
+            const viewport = document.getElementById("hybrid-map-viewport");
+            if (!viewport) return;
+            fallbackHandlersAttached = true;
+
+            viewport.addEventListener("pointerdown", (e) => {
+                if (!useFallbackSvg) return;
+                if (e.target.closest(".map-pin-node") || e.target.closest("#map-fallback-notice")) return;
+                mapState.isDragging = true;
+                mapState.dragMoved = false;
+                mapState.startX = e.clientX - mapState.translateX;
+                mapState.startY = e.clientY - mapState.translateY;
+                viewport.setPointerCapture(e.pointerId);
+            });
+
+            viewport.addEventListener("pointermove", (e) => {
+                if (!useFallbackSvg || !mapState.isDragging) return;
+                const dx = e.clientX - mapState.startX;
+                const dy = e.clientY - mapState.startY;
+                if (Math.abs(dx - mapState.translateX) > 3 || Math.abs(dy - mapState.translateY) > 3) {
+                    mapState.dragMoved = true;
+                }
+                mapState.translateX = dx;
+                mapState.translateY = dy;
+                updateMapTransform();
+            });
+
+            viewport.addEventListener("pointerup", (e) => {
+                if (!useFallbackSvg || !mapState.isDragging) return;
+                mapState.isDragging = false;
+                try { viewport.releasePointerCapture(e.pointerId); } catch (err) {}
+
+                if (mapState.isPickingLocation && !mapState.dragMoved) {
+                    const coords = clientToMapCoords(e.clientX, e.clientY);
+                    mapState.pickedCoords = coords;
+                    cancelPickLocationMode();
+                    document.getElementById("picked-coords-label").textContent = `Выбрано на карте (${coords.lat.toFixed(4)}, ${coords.lng.toFixed(4)})`;
+                    openAddModal();
+                    showToast("Точка выбрана!", "Координаты сохранены в форму добавления клиники.");
+                }
+            });
+
+            viewport.addEventListener("wheel", (e) => {
+                if (!useFallbackSvg) return;
+                if (!e.ctrlKey && !e.metaKey) return;
+                e.preventDefault();
+                const delta = e.deltaY < 0 ? 0.2 : -0.2;
+                mapState.scale = Math.max(0.75, Math.min(2.6, Number((mapState.scale + delta).toFixed(2))));
+                updateMapTransform();
+            }, { passive: false });
+        }
+
+        /**
+         * Включает векторную схему вместо настоящей карты
+         */
+        function switchToFallbackMap() {
+            if (useFallbackSvg) return;
+            useFallbackSvg = true;
+            clearTimeout(tileWatchdog);
+            try {
+                if (leafletMap) leafletMap.remove();
+            } catch (e) {}
+            leafletMap = null;
+            leafletMarkersLayer = null;
+            leafletRouteLayer = null;
+            tileLayerRef = null;
+
+            const leafletEl = document.getElementById("real-leaflet-map");
+            const svgEl = document.getElementById("hybrid-map-svg");
+            if (leafletEl) leafletEl.classList.add("hidden");
+            if (svgEl) svgEl.classList.remove("hidden");
+            updateMapTransform();
+            showMapNotice(true);
+            renderAll();
+        }
+
+        /**
+         * Подключает подложку карты от провайдера с номером index
+         */
+        function addTileLayer(index) {
+            if (!leafletMap) return;
+            const provider = TILE_PROVIDERS[index];
+            if (tileLayerRef) {
+                leafletMap.removeLayer(tileLayerRef);
+                tileLayerRef = null;
+            }
+            let loaded = 0;
+            let errors = 0;
+            const layer = L.tileLayer(provider.url, provider.options);
+            tileLayerRef = layer;
+
+            layer.on("tileload", () => {
+                loaded += 1;
+                if (tileLayerRef === layer) clearTimeout(tileWatchdog);
+            });
+            layer.on("tileerror", () => {
+                errors += 1;
+                if (tileLayerRef === layer && loaded === 0 && errors >= 4) tryNextTileProvider();
+            });
+            layer.addTo(leafletMap);
+
+            clearTimeout(tileWatchdog);
+            tileWatchdog = setTimeout(() => {
+                if (tileLayerRef === layer && loaded === 0) tryNextTileProvider();
+            }, 8000);
+        }
+
+        function tryNextTileProvider() {
+            if (useFallbackSvg || !leafletMap) return;
+            if (tileProviderIndex + 1 < TILE_PROVIDERS.length) {
+                tileProviderIndex += 1;
+                addTileLayer(tileProviderIndex);
+            } else {
+                switchToFallbackMap();
+            }
+        }
+
+        /**
+         * Повторная попытка загрузить настоящую карту (кнопка «Повторить»)
+         */
+        function retryRealMap() {
+            if (!window.L) {
+                showToast("Карта недоступна", "Библиотека карты не загрузилась. Проверьте интернет и обновите страницу.");
+                return;
+            }
+            useFallbackSvg = false;
+            mapInitialized = false;
+            showMapNotice(false);
+            initMap();
+        }
+
+        /**
+         * Инициализация карты: Leaflet с несколькими источниками тайлов, а при сбое — резервная схема
+         */
+        function initMap() {
+            if (mapInitialized) return;
+            const viewport = document.getElementById("hybrid-map-viewport");
+            const leafletEl = document.getElementById("real-leaflet-map");
+            const svgEl = document.getElementById("hybrid-map-svg");
+            if (!viewport) return;
+            mapInitialized = true;
+
+            attachFallbackHandlers();
+
+            // Кнопки управления масштабом
+            document.getElementById("map-zoom-in").onclick = () => {
+                if (!useFallbackSvg && leafletMap) {
+                    leafletMap.zoomIn();
+                } else {
+                    mapState.scale = Math.min(2.6, Number((mapState.scale + 0.25).toFixed(2)));
+                    updateMapTransform();
+                }
+            };
+            document.getElementById("map-zoom-out").onclick = () => {
+                if (!useFallbackSvg && leafletMap) {
+                    leafletMap.zoomOut();
+                } else {
+                    mapState.scale = Math.max(0.75, Number((mapState.scale - 0.25).toFixed(2)));
+                    updateMapTransform();
+                }
+            };
+            document.getElementById("map-reset-view").onclick = () => resetMapView();
+
+            if (!window.L || !leafletEl) {
+                useFallbackSvg = false; // переключатель сработает и отрисует всё
+                switchToFallbackMap();
+                return;
+            }
+
+            try {
+                if (leafletMap) {
+                    leafletMap.remove();
+                    leafletMap = null;
+                }
+                leafletMap = L.map(leafletEl, {
+                    center: mapState.defaultCenter,
+                    zoom: mapState.defaultZoom,
+                    zoomControl: false
+                });
+                leafletMarkersLayer = L.layerGroup().addTo(leafletMap);
+                leafletRouteLayer = L.layerGroup().addTo(leafletMap);
+
+                tileProviderIndex = 0;
+                addTileLayer(0);
+
+                // Выбор точки кликом по настоящей карте при добавлении объекта
+                leafletMap.on("click", (e) => {
+                    if (!mapState.isPickingLocation) return;
+                    const coords = {
+                        lat: Number(e.latlng.lat.toFixed(5)),
+                        lng: Number(e.latlng.lng.toFixed(5)),
+                        mapX: Math.max(60, Math.min(940, Math.round(500 + (e.latlng.lng - 76.9180) * 3500))),
+                        mapY: Math.max(60, Math.min(660, Math.round(360 - (e.latlng.lat - 43.2385) * 4500)))
+                    };
+                    mapState.pickedCoords = coords;
+                    cancelPickLocationMode();
+                    document.getElementById("picked-coords-label").textContent = `Выбрано на карте (${coords.lat}, ${coords.lng})`;
+                    openAddModal();
+                    showToast("Точка выбрана!", "Координаты сохранены в форму добавления клиники.");
+                });
+
+                // Пересчёт размера после того, как Tailwind и макет окончательно применились
+                setTimeout(() => { if (leafletMap) leafletMap.invalidateSize(); }, 150);
+                setTimeout(() => { if (leafletMap) leafletMap.invalidateSize(); }, 800);
+
+                useFallbackSvg = false;
+                leafletEl.classList.remove("hidden");
+                if (svgEl) svgEl.classList.add("hidden");
+                showMapNotice(false);
+            } catch (err) {
+                console.warn("Переключаемся на резервную карту:", err);
+                useFallbackSvg = false;
+                switchToFallbackMap();
+                return;
+            }
+
+            renderAll();
+        }
+
+        /**
+         * Отрисовка безбарьерного маршрута на настоящей карте Leaflet (и в резервном SVG)
+         */
+        function renderRouteOnMap() {
+            const hud = document.getElementById("map-route-hud");
+            const routeLayer = document.getElementById("map-route-layer");
+            if (!hud) return;
+
+            if (leafletRouteLayer) {
+                leafletRouteLayer.clearLayers();
+            }
+            if (routeLayer) {
+                routeLayer.innerHTML = "";
+            }
+
+            if (!activeRouteClinicId) {
+                hud.classList.add("hidden");
+                return;
+            }
+
+            const clinic = clinicsData.find(c => c.id === activeRouteClinicId);
+            if (!clinic) return;
+
+            if (!useFallbackSvg && leafletMap && leafletRouteLayer && typeof clinic.lat === "number") {
+                const startLatLng = [clinic.routeStartLat || (clinic.lat - 0.0005), clinic.routeStartLng || (clinic.lng - 0.0011)];
+                const cornerLatLng = [clinic.lat, clinic.routeStartLng || (clinic.lng - 0.0011)];
+                const endLatLng = [clinic.lat, clinic.lng];
+                const pathCoords = [startLatLng, cornerLatLng, endLatLng];
+
+                L.polyline(pathCoords, {
+                    color: "#ffffff",
+                    weight: 8,
+                    opacity: 0.95
+                }).addTo(leafletRouteLayer);
+
+                L.polyline(pathCoords, {
+                    color: "#0284c7",
+                    weight: 4,
+                    dashArray: "8, 8",
+                    opacity: 1
+                }).addTo(leafletRouteLayer);
+
+                L.circleMarker(startLatLng, {
+                    radius: 10,
+                    fillColor: "#1e3a8a",
+                    color: "#ffffff",
+                    weight: 3,
+                    fillOpacity: 1
+                })
+                    .bindTooltip(`Старт: ${clinic.routeStartLabel || "Парковка / Остановка"}`, { permanent: false })
+                    .addTo(leafletRouteLayer);
+            } else if (routeLayer) {
+                const sx = clinic.routeStartX || (clinic.mapX - 55);
+                const sy = clinic.routeStartY || (clinic.mapY + 35);
+                const ex = clinic.mapX;
+                const ey = clinic.mapY;
+                routeLayer.innerHTML = `
+                    <polyline points="${sx},${sy} ${sx},${ey} ${ex},${ey}"
+                        fill="none" stroke="#ffffff" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+                    <polyline points="${sx},${sy} ${sx},${ey} ${ex},${ey}"
+                        class="route-animated-line"
+                        fill="none" stroke="#0284c7" stroke-width="5" stroke-dasharray="12 12" stroke-linecap="round" stroke-linejoin="round"/>
+                `;
+            }
+
+            document.getElementById("map-route-title").textContent = `${clinic.name} → Доступный вход`;
+            document.getElementById("map-route-distance").textContent = `~ ${clinic.routeDistance || "40 м"}`;
+            document.getElementById("map-route-time").textContent = clinic.routeTime || "1–2 мин без ступеней";
+            hud.classList.remove("hidden");
+        }
+
+        function clearActiveRoute() {
+            activeRouteClinicId = null;
+            renderRouteOnMap();
+        }
+
+        /**
+         * Отрисовка списка учреждений и маркеров на настоящей карте Leaflet
+         */
+        function renderAll() {
+            const filtered = getFilteredClinics();
+            const listEl = document.getElementById("clinics-list");
+            const countEl = document.getElementById("results-count");
+            const mobileCountEl = document.getElementById("mobile-count");
+            const markersLayer = document.getElementById("map-markers-layer");
+            const tooltip = document.getElementById("map-hover-tooltip");
+
+            countEl.textContent = filtered.length;
+            if (mobileCountEl) mobileCountEl.textContent = filtered.length;
+
+            if (leafletMarkersLayer) {
+                leafletMarkersLayer.clearLayers();
+            }
+            if (markersLayer) {
+                markersLayer.innerHTML = "";
+            }
+
+            renderRouteOnMap();
+
+            if (filtered.length === 0) {
+                listEl.innerHTML = `
+                    <div class="p-8 rounded-3xl bg-white border border-slate-200 text-center space-y-3">
+                        <div class="text-3xl">🔍</div>
+                        <h3 class="text-base font-bold text-slate-900">По выбранным критериям клиник не найдено</h3>
+                        <p class="text-xs text-slate-600">Попробуйте снять часть фильтров или добавьте известное вам медучреждение на карту.</p>
+                        <button type="button" onclick="resetAllFilters()" class="a11y-target px-4 py-2 rounded-xl bg-brand-600 text-white text-xs font-bold">
+                            Сбросить все фильтры
+                        </button>
+                    </div>
+                `;
+                return;
+            }
+
+            listEl.innerHTML = "";
+
+            filtered.forEach(clinic => {
+                const cat = getRatingCategory(clinic.rating);
+                const isSelected = clinic.id === currentSelectedClinicId;
+
+                // 1. Маркер на настоящей карте Leaflet
+                if (!useFallbackSvg && leafletMap && leafletMarkersLayer && typeof clinic.lat === "number") {
+                    const iconHtml = `
+                        <div class="clinic-map-pin ${isSelected ? "clinic-pin-selected" : ""}" style="color: ${cat.hex};">
+                            <div class="clinic-pin-circle" style="background: ${cat.hex};">
+                                ${clinic.rating.toFixed(1)}
+                                ${clinic.alert ? `<span class="clinic-pin-alert">!</span>` : ""}
+                            </div>
+                            <div class="clinic-pin-label">${clinic.name}</div>
+                        </div>
+                    `;
+                    const divIcon = L.divIcon({
+                        html: iconHtml,
+                        className: "leaflet-div-icon",
+                        iconSize: [0, 0],
+                        iconAnchor: [0, 0]
+                    });
+                    const marker = L.marker([clinic.lat, clinic.lng], { icon: divIcon });
+                    marker.on("click", (e) => {
+                        L.DomEvent.stopPropagation(e);
+                        openPassportModal(clinic.id);
+                    });
+                    marker.bindTooltip(`${clinic.name} • ${cat.label} (${clinic.rating.toFixed(1)})`, {
+                        direction: "top",
+                        offset: [0, -24]
+                    });
+                    marker.addTo(leafletMarkersLayer);
+                } else if (markersLayer) {
+                    // Резервный SVG-маркер
+                    const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+                    g.setAttribute("class", "map-pin-node cursor-pointer");
+                    g.setAttribute("transform", `translate(${clinic.mapX}, ${clinic.mapY})`);
+                    g.innerHTML = `
+                        <circle r="${isSelected ? 23 : 20}" fill="${cat.hex}" stroke="#ffffff" stroke-width="3.5" filter="url(#pin-shadow)"/>
+                        <text y="5" fill="#ffffff" font-size="13" font-weight="800" text-anchor="middle">${clinic.rating.toFixed(1)}</text>
+                    `;
+                    g.addEventListener("click", (e) => {
+                        e.stopPropagation();
+                        openPassportModal(clinic.id);
+                    });
+                    markersLayer.appendChild(g);
+                }
+
+                // 2. Рендерим карточку в списке слева
+                const card = document.createElement("article");
+                card.className = `p-4 sm:p-5 rounded-3xl bg-white border ${isSelected ? 'border-brand-600 ring-2 ring-brand-200' : 'border-slate-200'} hover:border-brand-500 shadow-xs hover:shadow-md transition cursor-pointer space-y-3`;
+                card.setAttribute("tabindex", "0");
+                card.setAttribute("role", "button");
+                card.setAttribute("aria-label", `Открыть паспорт доступности: ${clinic.name}, рейтинг ${clinic.rating}`);
+                
+                card.onclick = () => openPassportModal(clinic.id);
+                card.onkeydown = (e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        openPassportModal(clinic.id);
+                    }
+                };
+
+                const alertHtml = clinic.alert 
+                    ? `<div class="px-3 py-2 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-semibold flex items-center gap-1.5">
+                        <span>⚠️</span> <span class="truncate">${clinic.alert}</span>
+                       </div>` 
+                    : "";
+
+                const doctorsPreview = clinic.doctors.slice(0, 2).map(d => `${d.specialty} (${d.floor.split(',')[0]})`).join(" • ");
+
+                card.innerHTML = `
+                    <div class="flex items-start justify-between gap-3">
+                        <div class="space-y-1">
+                            <div class="flex flex-wrap items-center gap-1.5">
+                                <span class="px-2 py-0.5 rounded-md text-[11px] font-bold border ${cat.badgeClass}">
+                                    ${cat.label}
+                                </span>
+                                <span class="text-[11px] font-medium text-slate-500">
+                                    ${clinic.verificationType === 'verified' ? '🛡️ ' + clinic.verification : '👥 ' + clinic.verification}
+                                </span>
+                            </div>
+                            <h3 class="text-base font-extrabold text-slate-900 leading-snug">${clinic.name}</h3>
+                            <p class="text-xs text-slate-500">${clinic.address}</p>
+                        </div>
+
+                        <div class="shrink-0 px-2.5 py-1.5 rounded-xl ${cat.bgClass} text-white font-extrabold text-sm">
+                            ${clinic.rating.toFixed(1)}
+                        </div>
+                    </div>
+
+                    ${alertHtml}
+
+                    <div class="flex flex-wrap gap-1.5 text-[11px] font-semibold">
+                        <span class="px-2 py-1 rounded-lg ${clinic.features.ramp ? 'bg-emerald-50 text-emerald-800' : 'bg-slate-100 text-slate-400 line-through'}">
+                            ${clinic.features.ramp ? '✓ Пандус' : '✕ Пандус'}
+                        </span>
+                        <span class="px-2 py-1 rounded-lg ${clinic.features.elevator ? 'bg-emerald-50 text-emerald-800' : 'bg-slate-100 text-slate-400 line-through'}">
+                            ${clinic.features.elevator ? '✓ Лифт' : '✕ Лифт'}
+                        </span>
+                        <span class="px-2 py-1 rounded-lg ${clinic.features.toilet ? 'bg-emerald-50 text-emerald-800' : 'bg-slate-100 text-slate-400 line-through'}">
+                            ${clinic.features.toilet ? '✓ Санузел МГН' : '✕ Санузел'}
+                        </span>
+                        <span class="px-2 py-1 rounded-lg ${clinic.features.tactile ? 'bg-emerald-50 text-emerald-800' : 'bg-slate-100 text-slate-400 line-through'}">
+                            ${clinic.features.tactile ? '✓ Тактильная среда' : '✕ Тактильная'}
+                        </span>
+                    </div>
+
+                    <div class="pt-2 border-t border-slate-100 flex items-center justify-between gap-2 text-xs">
+                        <span class="text-slate-600 truncate">🩺 ${doctorsPreview}</span>
+                        <span class="shrink-0 font-bold text-brand-700">Паспорт →</span>
+                    </div>
+                `;
+
+                listEl.appendChild(card);
+            });
+        }
+
+        /**
+         * Открытие детального «Паспорта доступности» учреждения
+         */
+        function openPassportModal(clinicId) {
+            const clinic = clinicsData.find(c => c.id === clinicId);
+            if (!clinic) return;
+
+            currentSelectedClinicId = clinicId;
+            const cat = getRatingCategory(clinic.rating);
+
+            // Центрируем карту на выбранной клинике
+            focusMapOnPoint(clinic.mapX, clinic.mapY, 1.35, clinic);
+            renderAll();
+
+            // Заполняем шапку модального окна
+            document.getElementById("passport-modal-title").textContent = clinic.name;
+            document.getElementById("modal-address").textContent = "📍 " + clinic.address;
+            document.getElementById("modal-updated-date").textContent = clinic.updatedAt;
+            document.getElementById("modal-rating-value").textContent = clinic.rating.toFixed(1);
+            document.getElementById("modal-confirmations-count").textContent = clinic.confirmations || 10;
+
+            const ratingBox = document.getElementById("modal-rating-box");
+            ratingBox.className = `px-3.5 py-2 rounded-2xl ${cat.bgClass} text-white text-center`;
+
+            const verifBadge = document.getElementById("modal-verification-badge");
+            verifBadge.textContent = (clinic.verificationType === "verified" ? "🛡️ " : "👥 ") + clinic.verification;
+            verifBadge.className = `px-3 py-1 rounded-lg text-xs font-bold border ${cat.badgeClass}`;
+
+            const alertBanner = document.getElementById("modal-alert-banner");
+            if (clinic.alert) {
+                alertBanner.classList.remove("hidden");
+                document.getElementById("modal-alert-text").textContent = clinic.alert;
+            } else {
+                alertBanner.classList.add("hidden");
+            }
+
+            document.getElementById("modal-entrance-desc").textContent = clinic.entranceDesc;
+            const routeList = document.getElementById("modal-route-list");
+            routeList.innerHTML = clinic.routeSteps.map(step => `<li>${step}</li>`).join("");
+            document.getElementById("entrance-route-steps").classList.add("hidden");
+
+            const checklistItems = [
+                { title: "Пандус и вход", val: clinic.specs.rampInfo, ok: clinic.features.ramp },
+                { title: "Ширина дверей", val: clinic.specs.doorWidth, ok: clinic.features.ramp },
+                { title: "Лифт и габариты", val: clinic.specs.elevatorInfo, ok: clinic.features.elevator },
+                { title: "Адаптированный санузел", val: clinic.specs.toiletInfo, ok: clinic.features.toilet },
+                { title: "Парковка для инвалидов", val: clinic.specs.parkingInfo, ok: clinic.features.parking },
+                { title: "Навигация и ассистент", val: clinic.specs.navigationInfo, ok: clinic.features.tactile }
+            ];
+
+            document.getElementById("modal-checklist-grid").innerHTML = checklistItems.map(item => `
+                <div class="p-3.5 rounded-2xl border ${item.ok ? 'bg-slate-50 border-slate-200' : 'bg-rose-50/40 border-rose-200'} flex items-start gap-3">
+                    <span class="w-6 h-6 rounded-lg ${item.ok ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'} flex items-center justify-center font-bold text-xs shrink-0 mt-0.5">
+                        ${item.ok ? '✓' : '✕'}
+                    </span>
+                    <div>
+                        <span class="block font-bold text-slate-900 text-xs">${item.title}</span>
+                        <span class="text-xs text-slate-600 leading-snug block mt-0.5">${item.val}</span>
+                    </div>
+                </div>
+            `).join("");
+
+            document.getElementById("modal-doctors-list").innerHTML = clinic.doctors.map(doc => `
+                <div class="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div>
+                        <span class="font-bold text-slate-900 text-sm">${doc.specialty}</span>
+                        <span class="text-xs font-semibold text-brand-700 ml-2 px-2 py-0.5 rounded-md bg-brand-50">${doc.floor}</span>
+                    </div>
+                    <span class="text-xs font-semibold ${doc.ok ? 'text-emerald-700' : 'text-rose-700'}">
+                        ${doc.ok ? '✓ ' + doc.access : '⚠️ ' + doc.access}
+                    </span>
+                </div>
+            `).join("");
+
+            document.getElementById("modal-reviews-count").textContent = clinic.reviews.length;
+            document.getElementById("modal-reviews-list").innerHTML = clinic.reviews.map(rev => `
+                <div class="p-3.5 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-1">
+                    <div class="flex items-center justify-between text-xs">
+                        <strong class="text-slate-900">${rev.author}</strong>
+                        <span class="text-slate-400">${rev.date}</span>
+                    </div>
+                    <p class="text-xs sm:text-sm text-slate-700">${rev.text}</p>
+                </div>
+            `).join("");
+
+            document.getElementById("quick-report-form").classList.add("hidden");
+
+            const modal = document.getElementById("passport-modal");
+            modal.classList.remove("hidden");
+            document.body.style.overflow = "hidden";
+        }
+
+        function closePassportModal() {
+            document.getElementById("passport-modal").classList.add("hidden");
+            document.body.style.overflow = "";
+        }
+
+        /**
+         * Построение маршрута прямо на карте из модального окна паспорта
+         */
+        function showRouteOnMapFromModal() {
+            if (!currentSelectedClinicId) return;
+            activeRouteClinicId = currentSelectedClinicId;
+            const clinic = clinicsData.find(c => c.id === activeRouteClinicId);
+            closePassportModal();
+            if (clinic) {
+                if (!useFallbackSvg && leafletMap && typeof clinic.lat === "number") {
+                    leafletMap.setView([clinic.lat, clinic.lng], 16, { animate: true });
+                } else {
+                    focusMapOnPoint(clinic.mapX, clinic.mapY, 1.5, clinic);
+                }
+            }
+            renderRouteOnMap();
+            document.getElementById("map-section").scrollIntoView({ behavior: "smooth" });
+            showToast("Маршрут построен на карте!", "Показан безбарьерный путь от парковки/остановки до входа.");
+        }
+
+        /**
+         * Подтверждение актуальности данных пользователем (+1)
+         */
+        function confirmClinicData() {
+            const clinic = clinicsData.find(c => c.id === currentSelectedClinicId);
+            if (!clinic) return;
+            clinic.confirmations = (clinic.confirmations || 10) + 1;
+            clinic.updatedAt = "Подтверждено только что";
+            document.getElementById("modal-confirmations-count").textContent = clinic.confirmations;
+            document.getElementById("modal-updated-date").textContent = clinic.updatedAt;
+            showToast("Спасибо за подтверждение!", `Актуальность данных подтвердили уже ${clinic.confirmations} чел.`);
+        }
+
+        /**
+         * Режим выбора точки кликом прямо по карте при добавлении объекта
+         */
+        function startPickLocationMode() {
+            mapState.isPickingLocation = true;
+            document.getElementById("pick-location-banner").classList.remove("hidden");
+            document.getElementById("hybrid-map-viewport").style.cursor = "crosshair";
+        }
+
+        function cancelPickLocationMode() {
+            mapState.isPickingLocation = false;
+            document.getElementById("pick-location-banner").classList.add("hidden");
+            document.getElementById("hybrid-map-viewport").style.cursor = "grab";
+        }
+
+        function pickLocationFromAddModal() {
+            closeAddModal();
+            document.getElementById("map-section").scrollIntoView({ behavior: "smooth" });
+            startPickLocationMode();
+        }
+
+        function selectClinicById(id) {
+            setTimeout(() => openPassportModal(id), 250);
+        }
+
+        function toggleEntranceRoute() {
+            const el = document.getElementById("entrance-route-steps");
+            el.classList.toggle("hidden");
+        }
+
+        function toggleReportForm() {
+            const form = document.getElementById("quick-report-form");
+            form.classList.toggle("hidden");
+            if (!form.classList.contains("hidden")) {
+                document.getElementById("report-comment-input").focus();
+            }
+        }
+
+        function setQuickReportPreset(text, isCritical) {
+            document.getElementById("report-comment-input").value = text;
+            document.getElementById("report-is-critical").value = isCritical ? "true" : "false";
+        }
+
+        /**
+         * Обработка отправки быстрого сообщения о проблеме / статусе
+         */
+        document.getElementById("quick-report-form").addEventListener("submit", function(e) {
+            e.preventDefault();
+            const clinic = clinicsData.find(c => c.id === currentSelectedClinicId);
+            if (!clinic) return;
+
+            const comment = document.getElementById("report-comment-input").value.trim();
+            const isCritical = document.getElementById("report-is-critical").value === "true";
+            if (!comment) return;
+
+            if (isCritical) {
+                clinic.alert = comment;
+                if (comment.toLowerCase().includes("лифт")) {
+                    clinic.features.elevator = false;
+                    clinic.specs.elevatorInfo = "НЕ РАБОТАЕТ (по сообщению пользователя)";
+                }
+                if (clinic.rating > 2.8) {
+                    clinic.rating = Math.max(2.4, Number((clinic.rating - 1.2).toFixed(1)));
+                }
+            } else {
+                clinic.alert = null;
+                if (comment.toLowerCase().includes("лифт починили")) {
+                    clinic.features.elevator = true;
+                    clinic.specs.elevatorInfo = "Работает • Подтверждено пользователем";
+                    clinic.rating = Math.min(4.8, Number((clinic.rating + 1.0).toFixed(1)));
+                }
+            }
+
+            clinic.updatedAt = "Обновлено только что";
+            clinic.reviews.unshift({
+                author: "Пользователь сервиса (оперативный статус)",
+                date: "Только что",
+                text: comment
+            });
+
+            document.getElementById("report-comment-input").value = "";
+            renderAll();
+            openPassportModal(clinic.id);
+            showToast("Статус обновлён!", "Информация мгновенно появилась в паспорте и на карте.");
+        });
+
+        /**
+         * Управление фильтрами и поиском
+         */
+        const searchInput = document.getElementById("search-input");
+        const clearSearchBtn = document.getElementById("clear-search-btn");
+        const ratingFilter = document.getElementById("rating-filter");
+
+        searchInput.addEventListener("input", (e) => {
+            activeFilters.search = e.target.value;
+            clearSearchBtn.classList.toggle("hidden", activeFilters.search === "");
+            renderAll();
+        });
+
+        clearSearchBtn.addEventListener("click", () => {
+            searchInput.value = "";
+            activeFilters.search = "";
+            clearSearchBtn.classList.add("hidden");
+            renderAll();
+            searchInput.focus();
+        });
+
+        ratingFilter.addEventListener("change", (e) => {
+            activeFilters.rating = e.target.value;
+            renderAll();
+        });
+
+        document.querySelectorAll(".filter-chip").forEach(btn => {
+            btn.addEventListener("click", () => {
+                const key = btn.getAttribute("data-filter");
+                activeFilters[key] = !activeFilters[key];
+                const isPressed = activeFilters[key];
+                btn.setAttribute("aria-pressed", String(isPressed));
+
+                if (isPressed) {
+                    btn.classList.add("active-filter", "bg-brand-700", "text-white", "border-brand-700");
+                    btn.classList.remove("bg-white", "text-slate-700", "border-slate-300");
+                } else {
+                    btn.classList.remove("active-filter", "bg-brand-700", "text-white", "border-brand-700");
+                    btn.classList.add("bg-white", "text-slate-700", "border-slate-300");
+                }
+                renderAll();
+            });
+        });
+
+        function resetAllFilters() {
+            activeFilters = {
+                search: "",
+                rating: "all",
+                ramp: false,
+                elevator: false,
+                toilet: false,
+                parking: false,
+                tactile: false,
+                verified: false
+            };
+            searchInput.value = "";
+            clearSearchBtn.classList.add("hidden");
+            ratingFilter.value = "all";
+
+            document.querySelectorAll(".filter-chip").forEach(btn => {
+                btn.setAttribute("aria-pressed", "false");
+                btn.classList.remove("active-filter", "bg-brand-700", "text-white", "border-brand-700");
+                btn.classList.add("bg-white", "text-slate-700", "border-slate-300");
+            });
+
+            renderAll();
+        }
+
+        document.getElementById("reset-filters-btn").addEventListener("click", resetAllFilters);
+
+        /**
+         * Модальное окно добавления новой клиники (Краудсорсинг)
+         */
+        function openAddModal() {
+            document.getElementById("add-modal").classList.remove("hidden");
+            document.body.style.overflow = "hidden";
+            document.getElementById("new-clinic-name").focus();
+        }
+
+        function closeAddModal() {
+            document.getElementById("add-modal").classList.add("hidden");
+            document.body.style.overflow = "";
+        }
+
+        document.getElementById("add-clinic-form").addEventListener("submit", function(e) {
+            e.preventDefault();
+
+            const name = document.getElementById("new-clinic-name").value.trim();
+            const address = document.getElementById("new-clinic-address").value.trim();
+            const doctorStr = document.getElementById("new-clinic-doctor").value.trim() || "Терапевт (1 этаж)";
+            const rating = parseFloat(document.getElementById("new-clinic-rating").value);
+            const entranceDesc = document.getElementById("new-clinic-entrance").value.trim();
+
+            const hasRamp = document.getElementById("chk-ramp").checked;
+            const hasElevator = document.getElementById("chk-elevator").checked;
+            const hasToilet = document.getElementById("chk-toilet").checked;
+            const hasParking = document.getElementById("chk-parking").checked;
+            const hasTactile = document.getElementById("chk-tactile").checked;
+
+            // Используем выбранную на карте точку или свободную точку рядом с центром
+            const coords = mapState.pickedCoords || {
+                lat: Number((43.2385 + (Math.random() - 0.5) * 0.025).toFixed(5)),
+                lng: Number((76.9180 + (Math.random() - 0.5) * 0.035).toFixed(5)),
+                mapX: Math.round(450 + (Math.random() - 0.5) * 180),
+                mapY: Math.round(330 + (Math.random() - 0.5) * 140)
+            };
+
+            const newClinic = {
+                id: Date.now(),
+                name: name,
+                address: address,
+                lat: coords.lat,
+                lng: coords.lng,
+                routeStartLat: coords.lat - 0.0005,
+                routeStartLng: coords.lng - 0.0010,
+                mapX: coords.mapX,
+                mapY: coords.mapY,
+                routeStartX: Math.max(50, coords.mapX - 55),
+                routeStartY: Math.min(670, coords.mapY + 40),
+                routeDistance: "40 м",
+                routeTime: hasRamp ? "1–2 мин без ступеней" : "Есть ступени на входе",
+                routeStartLabel: "Ближайший заезд / остановка",
+                confirmations: 1,
+                rating: rating,
+                verification: "Данные пользователей",
+                verificationType: "community",
+                updatedAt: "Добавлено только что",
+                alert: null,
+                entranceDesc: entranceDesc,
+                routeSteps: [
+                    "Ориентируйтесь по описанию входа от пользователя: " + entranceDesc,
+                    "При необходимости обратитесь к администратору на входе."
+                ],
+                features: {
+                    ramp: hasRamp,
+                    elevator: hasElevator,
+                    toilet: hasToilet,
+                    parking: hasParking,
+                    tactile: hasTactile
+                },
+                specs: {
+                    rampInfo: hasRamp ? "Подтверждено пользователем (удобный вход)" : "Пандус отсутствует / неудобный",
+                    doorWidth: hasRamp ? "От 90 см" : "Узкий проём",
+                    elevatorInfo: hasElevator ? "Работающий лифт для колясок" : "Лифт отсутствует",
+                    toiletInfo: hasToilet ? "Есть адаптированный санузел" : "Не адаптирован",
+                    parkingInfo: hasParking ? "Есть парковка для инвалидов" : "Спецмест не отмечено",
+                    navigationInfo: hasTactile ? "Есть тактильные / звуковые ориентиры" : "Базовая навигация"
+                },
+                doctors: [
+                    { specialty: doctorStr, floor: "1 этаж / уточняется", access: hasRamp ? "Доступно" : "Есть барьеры на входе", ok: hasRamp }
+                ],
+                reviews: [
+                    { author: "Участник сообщества MedAccess", date: "Только что", text: entranceDesc }
+                ]
+            };
+
+            mapState.pickedCoords = null;
+            document.getElementById("picked-coords-label").textContent = "Центр города (можно выбрать кликом по карте)";
+
+            clinicsData.unshift(newClinic);
+            resetAllFilters();
+            closeAddModal();
+            this.reset();
+
+            // Плавно прокручиваем к карте и открываем новую точку
+            document.getElementById("map-section").scrollIntoView({ behavior: "smooth" });
+            setTimeout(() => {
+                openPassportModal(newClinic.id);
+                showToast("Объект добавлен на карту!", `«${name}» теперь доступен всем пользователям.`);
+            }, 350);
+        });
+
+        /**
+         * Модальное окно заявки на аудит (B2B / B2G)
+         */
+        function openAuditModal(presetType) {
+            if (presetType) {
+                const select = document.getElementById("audit-type");
+                for (let opt of select.options) {
+                    if (opt.value.includes(presetType)) {
+                        select.value = opt.value;
+                    }
+                }
+            }
+            document.getElementById("audit-modal").classList.remove("hidden");
+            document.body.style.overflow = "hidden";
+            document.getElementById("audit-org-name").focus();
+        }
+
+        function closeAuditModal() {
+            document.getElementById("audit-modal").classList.add("hidden");
+            document.body.style.overflow = "";
+        }
+
+        document.getElementById("audit-request-form").addEventListener("submit", function(e) {
+            e.preventDefault();
+            const org = document.getElementById("audit-org-name").value.trim();
+            closeAuditModal();
+            this.reset();
+            showToast("Заявка принята!", `Команда MedAccess свяжется с «${org}» в течение рабочего дня.`);
+        });
+
+        /**
+         * Всплывающее уведомление (Toast)
+         */
+        let toastTimeout = null;
+        function showToast(title, message) {
+            const toast = document.getElementById("toast-notification");
+            document.getElementById("toast-title").textContent = title;
+            document.getElementById("toast-message").textContent = message;
+            toast.classList.remove("hidden");
+
+            if (toastTimeout) clearTimeout(toastTimeout);
+            toastTimeout = setTimeout(() => {
+                toast.classList.add("hidden");
+            }, 4500);
+        }
+
+        /**
+         * Настройки доступности (Крупный шрифт и Высокая контрастность)
+         */
+        const toggleFontBtn = document.getElementById("toggle-font-btn");
+        const toggleContrastBtn = document.getElementById("toggle-contrast-btn");
+
+        toggleFontBtn.addEventListener("click", () => {
+            const isLarge = document.documentElement.classList.toggle("a11y-large-text");
+            toggleFontBtn.setAttribute("aria-pressed", String(isLarge));
+            document.getElementById("font-btn-label").textContent = isLarge ? "Обычный шрифт" : "Крупный шрифт";
+            updateMapTransform();
+        });
+
+        toggleContrastBtn.addEventListener("click", () => {
+            const isHighContrast = document.documentElement.classList.toggle("a11y-high-contrast");
+            toggleContrastBtn.setAttribute("aria-pressed", String(isHighContrast));
+            document.getElementById("contrast-btn-label").textContent = isHighContrast ? "Стандартный цвет" : "Высокий контраст";
+        });
+
+        /**
+         * Мобильное меню и переключатели режима Карта/Список на мобильных экранах
+         */
+        const mobileMenuBtn = document.getElementById("mobile-menu-btn");
+        const mobileMenu = document.getElementById("mobile-menu");
+
+        mobileMenuBtn.addEventListener("click", () => {
+            const expanded = mobileMenuBtn.getAttribute("aria-expanded") === "true";
+            mobileMenuBtn.setAttribute("aria-expanded", String(!expanded));
+            mobileMenu.classList.toggle("hidden");
+        });
+
+        document.querySelectorAll(".mobile-nav-link").forEach(link => {
+            link.addEventListener("click", () => {
+                mobileMenu.classList.add("hidden");
+                mobileMenuBtn.setAttribute("aria-expanded", "false");
+            });
+        });
+
+        const viewBothBtn = document.getElementById("view-both-btn");
+        const viewMapOnlyBtn = document.getElementById("view-map-only-btn");
+        const viewListOnlyBtn = document.getElementById("view-list-only-btn");
+        const listContainer = document.getElementById("list-container");
+        const mapContainer = document.getElementById("map-container");
+
+        function setMobileViewMode(mode) {
+            [viewBothBtn, viewMapOnlyBtn, viewListOnlyBtn].forEach(b => {
+                b.classList.remove("bg-white", "text-slate-900", "font-bold", "shadow-xs");
+                b.classList.add("text-slate-600", "font-semibold");
+                b.setAttribute("aria-selected", "false");
+            });
+
+            if (mode === "both") {
+                listContainer.classList.remove("hidden");
+                mapContainer.classList.remove("hidden");
+                viewBothBtn.classList.add("bg-white", "text-slate-900", "font-bold", "shadow-xs");
+                viewBothBtn.setAttribute("aria-selected", "true");
+            } else if (mode === "map") {
+                listContainer.classList.add("hidden");
+                mapContainer.classList.remove("hidden");
+                viewMapOnlyBtn.classList.add("bg-white", "text-slate-900", "font-bold", "shadow-xs");
+                viewMapOnlyBtn.setAttribute("aria-selected", "true");
+            } else if (mode === "list") {
+                mapContainer.classList.add("hidden");
+                listContainer.classList.remove("hidden");
+                viewListOnlyBtn.classList.add("bg-white", "text-slate-900", "font-bold", "shadow-xs");
+                viewListOnlyBtn.setAttribute("aria-selected", "true");
+            }
+
+            if (mode !== "list") {
+                updateMapTransform();
+                if (!useFallbackSvg && leafletMap) {
+                    setTimeout(() => leafletMap.invalidateSize(), 120);
+                }
+            }
+        }
+
+        viewBothBtn.addEventListener("click", () => setMobileViewMode("both"));
+        viewMapOnlyBtn.addEventListener("click", () => setMobileViewMode("map"));
+        viewListOnlyBtn.addEventListener("click", () => setMobileViewMode("list"));
+
+        // Закрытие модальных окон по клавише Escape
+        document.addEventListener("keydown", (e) => {
+            if (e.key === "Escape") {
+                closePassportModal();
+                closeAddModal();
+                closeAuditModal();
+                cancelPickLocationMode();
+            }
+        });
+
+        // Запуск карты при готовности DOM; на window.load только пересчитываем размер
+        try {
+            if (document.readyState === "loading") {
+                document.addEventListener("DOMContentLoaded", initMap);
+            } else {
+                initMap();
+            }
+            window.addEventListener("load", function () {
+                if (leafletMap) {
+                    leafletMap.invalidateSize();
+                } else if (!mapInitialized) {
+                    initMap();
+                }
+            });
+        } catch (err) {
+            console.error("Ошибка запуска карты:", err);
+        }
+    </script>
+</body>
+</html>
